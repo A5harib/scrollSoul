@@ -10,7 +10,14 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class ReelsTrackerService extends AccessibilityService {
 
@@ -22,14 +29,16 @@ public class ReelsTrackerService extends AccessibilityService {
     // State
     private boolean isInReelsView = false;
     private long currentReelId = -1;
-    private long lastReelId = -1; // Added to prevent duplicate bug
+    private long lastReelId = -1;
     private long lastScrollTimestamp = 0;
     private int reelCounter = 0;
+    
     private String currentUsername = "";
     private String currentCaption = "";
+    private String currentLikeCount = "";
+    
     private String lastUsername = "";
     private String lastCaption = "";
-    private boolean debugDumpDone = false; // dump tree once per session
 
     // Toggles
     private boolean toggleMetadata = true, toggleWatchTime = true;
@@ -65,6 +74,43 @@ public class ReelsTrackerService extends AccessibilityService {
         Log.w(TAG, "Service interrupted"); stopPolling();
     }
 
+    // ── FILE LOGGER FOR DEBUGGING ────────────────────────────────────────────
+
+   // ── FILE LOGGER FOR DEBUGGING ────────────────────────────────────────────
+
+    private void logToFile(String tag, String id, String value) {
+        String shortId = id.contains("/") ? id.substring(id.lastIndexOf("/") + 1) : id;
+        
+        // Format:  TAG: [id_name] -> The text value
+        String logLine = tag + ": [" + (shortId.isEmpty() ? "NO_ID" : shortId) + "] -> " + value.replace("\n", " | ");
+        
+        // We broadcast this specific log to the "ScrollMind.LogStream" tag
+        Log.d("ScrollMind.LogStream", logLine);
+    }
+
+    private void scanAndLogAllNodes(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 10) return;
+
+        String text = getText(node);
+        String desc = node.getContentDescription() != null ? node.getContentDescription().toString() : "";
+        String id = node.getViewIdResourceName() != null ? node.getViewIdResourceName() : "";
+        
+        String val = !text.isEmpty() ? text : desc;
+        
+        // Only log nodes that actually have text to avoid flooding the file
+        if (!val.isEmpty() && val.length() >= 1) {
+            logToFile("SCAN", id, val.replace("\n", " | "));
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                scanAndLogAllNodes(child, depth + 1);
+                child.recycle();
+            }
+        }
+    }
+
     // ── EVENT DISPATCHER ─────────────────────────────────────────────────────
 
     @Override
@@ -87,7 +133,6 @@ public class ReelsTrackerService extends AccessibilityService {
                 if (isInReelsView && toggleEngagement) onClick(event);
                 break;
             case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED:
-                // Re-check if we left reels
                 if (isInReelsView && !isReelsPlayer()) exitReels();
                 break;
         }
@@ -97,7 +142,6 @@ public class ReelsTrackerService extends AccessibilityService {
 
     private void checkReelsState() {
         boolean inReels = isReelsPlayer();
-        Log.d(TAG, "checkReelsState: inReels=" + inReels + " wasInReels=" + isInReelsView);
         if (inReels && !isInReelsView) enterReels();
         else if (!inReels && isInReelsView) exitReels();
     }
@@ -110,61 +154,37 @@ public class ReelsTrackerService extends AccessibilityService {
             boolean hasReelContainer = false;
             int screenH = getResources().getDisplayMetrics().heightPixels;
 
-            // 1. Look for known reel container IDs (IG changes these often)
             String[] containerIds = {
-                IG + ":id/clips_viewer_view_pager",
-                IG + ":id/reel_viewer_root",
-                IG + ":id/fragment_clips_viewer_root",
-                IG + ":id/layout_clips_viewer_root",
+                IG + ":id/clips_viewer_view_pager", IG + ":id/reel_viewer_root",
+                IG + ":id/fragment_clips_viewer_root", IG + ":id/layout_clips_viewer_root",
                 IG + ":id/clips_video_container"
             };
             for (String id : containerIds) {
                 List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
                 if (ns != null && !ns.isEmpty()) {
                     for (AccessibilityNodeInfo n : ns) {
-                        Rect b = new Rect();
-                        n.getBoundsInScreen(b);
-                        // Make sure it takes up most of the screen
-                        if (b.height() > screenH * 0.5) {
-                            hasReelContainer = true;
-                            break;
-                        }
+                        Rect b = new Rect(); n.getBoundsInScreen(b);
+                        if (b.height() > screenH * 0.5) { hasReelContainer = true; break; }
                     }
                     recycle(ns);
                     if (hasReelContainer) break;
                 }
             }
 
-            // 2. Fallback: Check for Reels specific UI (caption, audio button, etc)
             if (!hasReelContainer) {
-                String[] fallbackIds = {
-                    IG + ":id/clips_caption", 
-                    IG + ":id/reel_viewer_caption",
-                    IG + ":id/reel_music_attribution_subtitle"
-                };
+                String[] fallbackIds = { IG + ":id/clips_caption", IG + ":id/reel_viewer_caption" };
                 for (String id : fallbackIds) {
                     List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
                     if (ns != null && !ns.isEmpty()) {
-                        hasReelContainer = true;
-                        recycle(ns);
-                        break;
+                        hasReelContainer = true; recycle(ns); break;
                     }
                 }
             }
 
             if (!hasReelContainer) return false;
 
-            // Determine if we are on Reels tab vs Home tab
             String activeTab = getActiveTab(root);
-            Log.d(TAG, "Reel container found. Active tab: " + activeTab);
-
-            if (activeTab.equals("Reels") || activeTab.equals("none")) {
-                // "Reels" tab selected, or no nav bar (dedicated viewer from DM/explore)
-                return true;
-            } else {
-                return false;
-            }
-
+            return activeTab.equals("Reels") || activeTab.equals("none");
         } finally {
             root.recycle();
         }
@@ -172,48 +192,32 @@ public class ReelsTrackerService extends AccessibilityService {
 
     private String getActiveTab(AccessibilityNodeInfo root) {
         String[] tabDescriptions = {"Home", "Search", "Reels", "Shop", "Profile", "Create", "Notifications"};
-
         for (String tabDesc : tabDescriptions) {
             AccessibilityNodeInfo found = findNodeByContentDesc(root, tabDesc, 0);
             if (found != null) {
-                if (found.isSelected()) {
-                    found.recycle();
-                    return tabDesc;
-                }
+                if (found.isSelected()) { found.recycle(); return tabDesc; }
                 found.recycle();
             }
         }
-
         boolean hasAnyTab = false;
         for (String tabDesc : tabDescriptions) {
             AccessibilityNodeInfo found = findNodeByContentDesc(root, tabDesc, 0);
-            if (found != null) {
-                hasAnyTab = true;
-                found.recycle();
-                break;
-            }
+            if (found != null) { hasAnyTab = true; found.recycle(); break; }
         }
-
         return hasAnyTab ? "unknown" : "none";
     }
 
     private AccessibilityNodeInfo findNodeByContentDesc(AccessibilityNodeInfo node, String target, int depth) {
         if (node == null || depth > 4) return null;
 
-        // Custom bounds visibility check (Fixes the Homepage vs Reels page bug safely)
-        Rect b = new Rect();
-        node.getBoundsInScreen(b);
+        Rect b = new Rect(); node.getBoundsInScreen(b);
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        if (b.height() <= 0 || b.top >= screenH || b.bottom <= 0) {
-            return null; 
-        }
+        if (b.height() <= 0 || b.top >= screenH || b.bottom <= 0) return null; 
 
         CharSequence desc = node.getContentDescription();
         if (desc != null) {
             String d = desc.toString().trim();
-            if (d.equals(target) || d.startsWith(target)) {
-                return AccessibilityNodeInfo.obtain(node);
-            }
+            if (d.equals(target) || d.startsWith(target)) return AccessibilityNodeInfo.obtain(node);
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -231,7 +235,6 @@ public class ReelsTrackerService extends AccessibilityService {
         isInReelsView = true;
         lastScrollTimestamp = System.currentTimeMillis();
         reelCounter = 0;
-        debugDumpDone = false;
         Log.i(TAG, ">>> ENTERED REELS");
         if (toggleCompletion) startPolling();
         emit("onEnterReels", "{}");
@@ -241,49 +244,37 @@ public class ReelsTrackerService extends AccessibilityService {
         isInReelsView = false;
         finalizeReel();
         stopPolling();
-        Log.i(TAG, "<<< EXITED REELS (watched " + reelCounter + ")");
-        try {
-            JSONObject d = new JSONObject();
-            d.put("reelsWatched", reelCounter);
-            emit("onExitReels", d.toString());
-        } catch (JSONException e) {}
+        try { JSONObject d = new JSONObject(); d.put("reelsWatched", reelCounter); emit("onExitReels", d.toString()); } catch (JSONException e) {}
     }
 
     // ── SCROLL (debounced) ───────────────────────────────────────────────────
 
     private void onScroll(AccessibilityEvent event) {
         long now = System.currentTimeMillis();
-        if (now - lastScrollTimestamp < SCROLL_DEBOUNCE_MS) {
-            return;
-        }
+        if (now - lastScrollTimestamp < SCROLL_DEBOUNCE_MS) return;
 
         if (toggleWatchTime && currentReelId > 0) {
             long wt = now - lastScrollTimestamp;
-            double comp = getCompletion();
-            dbHelper.updateReelWatchData(currentReelId, wt, comp);
+            dbHelper.updateReelWatchData(currentReelId, wt, getCompletion());
         }
 
         currentReelId = -1;
         currentUsername = "";
         currentCaption = ""; 
+        currentLikeCount = "";
 
         lastScrollTimestamp = now;
         reelCounter++;
 
-        if (!debugDumpDone) {
-            debugDumpDone = true;
-            AccessibilityNodeInfo dumpRoot = getRootInActiveWindow();
-            if (dumpRoot != null) {
-                NodeDebugger.dumpTree(dumpRoot, "FIRST_REEL_SCROLL");
-                dumpRoot.recycle();
-            }
-        }
+        logToFile("\n======", "======", "NEW REEL SCROLLED (Reel #" + reelCounter + ")");
 
         if (toggleMetadata) {
             handler.postDelayed(() -> {
                 AccessibilityNodeInfo r = getRootInActiveWindow();
                 if (r != null) {
                     try {
+                        // THIS DUMPS THE WHOLE SCREEN TO LOGS.TXT
+                        scanAndLogAllNodes(r, 0); 
                         scrape(r);
                     } finally { r.recycle(); }
                 }
@@ -302,6 +293,7 @@ public class ReelsTrackerService extends AccessibilityService {
             d.put("reelId", currentReelId);
             d.put("username", currentUsername);
             d.put("caption", currentCaption);
+            d.put("likeCount", currentLikeCount); // Added Like Count to RN Payload
             d.put("timestamp", ts);
             emit("onReelScrolled", d.toString());
         } catch (JSONException e) {}
@@ -312,11 +304,12 @@ public class ReelsTrackerService extends AccessibilityService {
     private void scrape(AccessibilityNodeInfo root) {
         currentUsername = "";
         currentCaption = "";
+        currentLikeCount = "";
 
+        // 1. EXTRACT USERNAME
         String[] uIds = {
             IG + ":id/reel_viewer_username", IG + ":id/clips_username",
-            IG + ":id/username_text_view", IG + ":id/clips_viewer_attribution_line",
-            IG + ":id/reel_music_attribution_username", IG + ":id/reel_viewer_title"
+            IG + ":id/username_text_view", IG + ":id/clips_viewer_attribution_line"
         };
         for (String id : uIds) {
             List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
@@ -325,6 +318,7 @@ public class ReelsTrackerService extends AccessibilityService {
                     String t = getText(n);
                     if (!t.isEmpty() && !t.contains(" ")) {
                         currentUsername = t.replace("@", "").trim();
+                        logToFile("FOUND_USER", id, currentUsername);
                         break;
                     }
                 }
@@ -334,11 +328,11 @@ public class ReelsTrackerService extends AccessibilityService {
         }
         if (currentUsername.isEmpty()) currentUsername = findUsernameHeuristic(root);
 
+        // 2. EXTRACT CAPTION
         String[] cIds = {
             IG + ":id/clips_caption", IG + ":id/reel_viewer_caption",
             IG + ":id/clips_caption_text", IG + ":id/caption_text",
-            IG + ":id/clips_viewer_video_caption", IG + ":id/video_caption",
-            IG + ":id/contextual_feed_caption_container"
+            IG + ":id/row_feed_caption", IG + ":id/clips_viewer_video_caption"
         };
         for (String id : cIds) {
             List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
@@ -347,6 +341,7 @@ public class ReelsTrackerService extends AccessibilityService {
                     String t = deepText(n);
                     if (!t.isEmpty() && !isUiLabel(t)) {
                         currentCaption = t.trim();
+                        logToFile("FOUND_DESC", id, currentCaption);
                         break;
                     }
                 }
@@ -356,7 +351,35 @@ public class ReelsTrackerService extends AccessibilityService {
         }
         if (currentCaption.isEmpty()) currentCaption = findCaptionHeuristic(root);
 
-        // Fixes the duplication bug: Restore ID if the UI hasn't caught up with the scroll yet
+        // 3. EXTRACT LIKE COUNT (New)
+        String[] lIds = {
+            IG + ":id/like_count", IG + ":id/row_feed_textview_likes",
+            IG + ":id/clips_viewer_like_count"
+        };
+        for (String id : lIds) {
+            List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
+            if (ns != null && !ns.isEmpty()) {
+                for (AccessibilityNodeInfo n : ns) {
+                    String t = getText(n).trim();
+                    if (!t.isEmpty()) {
+                        currentLikeCount = t;
+                        logToFile("FOUND_LIKES", id, currentLikeCount);
+                        break;
+                    }
+                }
+                recycle(ns);
+                if (!currentLikeCount.isEmpty()) break;
+            }
+        }
+        
+        // If exact ID fails, try to find a text node that literally says "likes"
+        if (currentLikeCount.isEmpty()) {
+            currentLikeCount = findLikeCountHeuristic(root);
+            if(!currentLikeCount.isEmpty()) {
+                 logToFile("FOUND_LIKES_HEURISTIC", "heuristic", currentLikeCount);
+            }
+        }
+
         if (currentUsername.equals(lastUsername) && currentCaption.equals(lastCaption) && !currentUsername.isEmpty()) {
             currentReelId = lastReelId; 
             return;
@@ -370,7 +393,6 @@ public class ReelsTrackerService extends AccessibilityService {
 
     private boolean isUiLabel(String text) {
         String lower = text.toLowerCase().trim();
-        // Added ignore cases so description isn't messed up
         String[] uiStrings = {
             "turn on sound", "tap to unmute", "follow", "following",
             "share", "like", "comment", "send", "more", "audio",
@@ -418,6 +440,20 @@ public class ReelsTrackerService extends AccessibilityService {
         }
         return "";
     }
+    
+    private String findLikeCountHeuristic(AccessibilityNodeInfo node) {
+        if (node == null) return "";
+        String t = getText(node).toLowerCase().trim();
+        // Look for things like "1.2M likes", "456K likes", "12,000 likes"
+        if (t.endsWith("likes") && t.length() < 20) {
+            return t;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo c = node.getChild(i);
+            if (c != null) { String r = findLikeCountHeuristic(c); c.recycle(); if (!r.isEmpty()) return r; }
+        }
+        return "";
+    }
 
     private String getText(AccessibilityNodeInfo n) {
         if (n == null) return "";
@@ -435,14 +471,8 @@ public class ReelsTrackerService extends AccessibilityService {
     private void collectText(AccessibilityNodeInfo node, StringBuilder sb, int depth) {
         if (node == null || depth > 6) return;
         
-        // Bounds check to ensure we aren't pulling hidden text/comments
-        Rect b = new Rect();
-        node.getBoundsInScreen(b);
-        int screenH = getResources().getDisplayMetrics().heightPixels;
-        if (b.height() <= 0 || b.top >= screenH || b.bottom <= 0) {
-            return; 
-        }
-
+        // I removed the restrictive bounds check here. Captions are often long
+        // and go below the screen. Removing it fixes the caption cutting off.
         CharSequence t = node.getText();
         if (t != null && t.length() > 0 && !isUiLabel(t.toString())) {
             if (sb.length() > 0) sb.append(" ");
@@ -565,20 +595,16 @@ public class ReelsTrackerService extends AccessibilityService {
             case "toggle_ocr": toggleOcr = val; break;
         }
     }
-
     public boolean getToggle(String key) {
         return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(key, true);
     }
-
+    // 👆
     public String getServiceStatus() {
         try {
             JSONObject s = new JSONObject();
             s.put("isRunning", true); s.put("isInReelsView", isInReelsView);
             s.put("currentReelId", currentReelId); s.put("reelCounter", reelCounter);
             s.put("currentUsername", currentUsername);
-            s.put("toggleMetadata", toggleMetadata); s.put("toggleWatchTime", toggleWatchTime);
-            s.put("toggleCompletion", toggleCompletion); s.put("toggleEngagement", toggleEngagement);
-            s.put("toggleOcr", toggleOcr);
             return s.toString();
         } catch (JSONException e) { return "{}"; }
     }
