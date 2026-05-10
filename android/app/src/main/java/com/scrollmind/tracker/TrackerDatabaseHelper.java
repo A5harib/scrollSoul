@@ -10,19 +10,15 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
 import java.util.List;
 
-/**
- * SQLite database helper for buffering scraped Reels data locally.
- * Acts as a queue before events are broadcast to React Native and synced to the cloud.
- */
 public class TrackerDatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "scrollmind.db";
-    private static final int DATABASE_VERSION = 1;
+    
+    // 👇 THIS IS THE FIX (Bumping from 1 to 2 forces a fresh schema rebuild)
+    private static final int DATABASE_VERSION = 2; 
 
-    // ── Reels Table ──────────────────────────────────────────────────────────────
     public static final String TABLE_REELS = "reels";
     public static final String COL_ID = "_id";
     public static final String COL_USERNAME = "username";
@@ -53,7 +49,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
                     COL_SYNCED + " INTEGER DEFAULT 0" +
                     ");";
 
-    // ── Stats Table ──────────────────────────────────────────────────────────────
     public static final String TABLE_SESSION_STATS = "session_stats";
     public static final String COL_SESSION_ID = "session_id";
     public static final String COL_SESSION_START = "session_start";
@@ -70,7 +65,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
                     COL_TOTAL_WATCH_TIME + " INTEGER DEFAULT 0" +
                     ");";
 
-    // ── Singleton ────────────────────────────────────────────────────────────────
     private static TrackerDatabaseHelper sInstance;
 
     public static synchronized TrackerDatabaseHelper getInstance(Context context) {
@@ -97,13 +91,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         onCreate(db);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════════
-    //  REEL CRUD
-    // ══════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Inserts a new reel record and returns its row ID.
-     */
     public long insertReel(String username, String caption) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
@@ -121,9 +108,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         db.update(TABLE_REELS, cv, COL_ID + " = ?", new String[]{String.valueOf(reelId)});
     }
 
-    /**
-     * Updates watch time and completion for an existing reel record.
-     */
     public void updateReelWatchData(long reelId, long watchTimeMs, double completionPercent) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
@@ -132,9 +116,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         db.update(TABLE_REELS, cv, COL_ID + " = ?", new String[]{String.valueOf(reelId)});
     }
 
-    /**
-     * Marks a like, comment, or share on a reel.
-     */
     public void updateReelEngagement(long reelId, boolean liked, boolean commented, boolean shared) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
@@ -146,9 +127,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
-    /**
-     * Stores OCR-extracted text for a reel.
-     */
     public void updateReelOcrText(long reelId, String ocrText) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
@@ -156,9 +134,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         db.update(TABLE_REELS, cv, COL_ID + " = ?", new String[]{String.valueOf(reelId)});
     }
 
-    /**
-     * Returns the number of reels watched today.
-     */
     public int getTodayReelCount() {
         SQLiteDatabase db = getReadableDatabase();
         long todayStart = getTodayStartMillis();
@@ -172,9 +147,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         return count;
     }
 
-    /**
-     * Returns the total number of reels tracked.
-     */
     public int getTotalReelCount() {
         SQLiteDatabase db = getReadableDatabase();
         Cursor cursor = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_REELS, null);
@@ -186,9 +158,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         return count;
     }
 
-    /**
-     * Returns all un-synced reels as a JSON array string (for React Native).
-     */
     public String getUnsyncedReelsJSON() {
         SQLiteDatabase db = getReadableDatabase();
         Cursor cursor = db.query(TABLE_REELS, null,
@@ -219,9 +188,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         return arr.toString();
     }
 
-    /**
-     * Returns the most recent N reels as a JSON array string.
-     */
     public String getRecentReelsJSON(int limit) {
         SQLiteDatabase db = getReadableDatabase();
         Cursor cursor = db.query(TABLE_REELS, null,
@@ -252,9 +218,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         return arr.toString();
     }
 
-    /**
-     * Marks reels as synced after they have been sent to React Native / cloud.
-     */
     public void markReelsSynced(List<Long> ids) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
@@ -264,51 +227,40 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
-    /**
-     * Returns aggregate stats as a JSON string.
-     */
     public String getAggregateStatsJSON() {
         SQLiteDatabase db = getReadableDatabase();
         JSONObject stats = new JSONObject();
         try {
-            // Total reels
             Cursor c1 = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_REELS, null);
             if (c1.moveToFirst()) stats.put("totalReels", c1.getInt(0));
             c1.close();
 
-            // Total watch time
             Cursor c2 = db.rawQuery("SELECT SUM(" + COL_WATCH_TIME_MS + ") FROM " + TABLE_REELS, null);
             if (c2.moveToFirst()) stats.put("totalWatchTimeMs", c2.getLong(0));
             c2.close();
 
-            // Average watch time
             Cursor c3 = db.rawQuery("SELECT AVG(" + COL_WATCH_TIME_MS + ") FROM " + TABLE_REELS, null);
             if (c3.moveToFirst()) stats.put("avgWatchTimeMs", c3.getDouble(0));
             c3.close();
 
-            // Average completion
             Cursor c4 = db.rawQuery("SELECT AVG(" + COL_COMPLETION_PERCENT + ") FROM " + TABLE_REELS, null);
             if (c4.moveToFirst()) stats.put("avgCompletionPercent", c4.getDouble(0));
             c4.close();
 
-            // Total likes
             Cursor c5 = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_REELS + " WHERE " + COL_LIKED + " = 1", null);
             if (c5.moveToFirst()) stats.put("totalLikes", c5.getInt(0));
             c5.close();
 
-            // Total comments
             Cursor c6 = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_REELS + " WHERE " + COL_COMMENTED + " = 1", null);
             if (c6.moveToFirst()) stats.put("totalComments", c6.getInt(0));
             c6.close();
 
-            // Today's reels count
             long todayStart = getTodayStartMillis();
             Cursor c7 = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_REELS + " WHERE " + COL_TIMESTAMP + " >= ?",
                     new String[]{String.valueOf(todayStart)});
             if (c7.moveToFirst()) stats.put("todayReels", c7.getInt(0));
             c7.close();
 
-            // Today's watch time
             Cursor c8 = db.rawQuery("SELECT SUM(" + COL_WATCH_TIME_MS + ") FROM " + TABLE_REELS + " WHERE " + COL_TIMESTAMP + " >= ?",
                     new String[]{String.valueOf(todayStart)});
             if (c8.moveToFirst()) stats.put("todayWatchTimeMs", c8.getLong(0));
@@ -320,9 +272,6 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         return stats.toString();
     }
 
-    /**
-     * Deletes all reel records from the database.
-     */
     public void clearAllReels() {
         SQLiteDatabase db = getWritableDatabase();
         db.delete(TABLE_REELS, null, null);
