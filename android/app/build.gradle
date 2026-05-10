@@ -116,6 +116,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // ML Kit Text Recognition for OCR (on-device)
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
 }
 
 // React Native Vector Icons

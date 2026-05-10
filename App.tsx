@@ -74,7 +74,7 @@ function AppContent() {
         <View style={styles.headerLeft}>
           <View style={styles.logoRow}>
             <Icon name="brain" size={24} color="#A29BFE" />
-            <Text style={styles.logo}>ScrollMind</Text>
+            <Text style={styles.logo}>Scroll Soul</Text>
           </View>
           <Text style={styles.tagline}>Reels awareness engine</Text>
         </View>

@@ -32,6 +32,7 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
     public static final String COL_LIKED = "liked";
     public static final String COL_COMMENTED = "commented";
     public static final String COL_SHARED = "shared";
+    public static final String COL_THUMBNAIL_PATH = "thumbnail_path";
     public static final String COL_OCR_TEXT = "ocr_text";
     public static final String COL_TIMESTAMP = "timestamp";
     public static final String COL_SYNCED = "synced";
@@ -46,6 +47,7 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
                     COL_LIKED + " INTEGER DEFAULT 0, " +
                     COL_COMMENTED + " INTEGER DEFAULT 0, " +
                     COL_SHARED + " INTEGER DEFAULT 0, " +
+                    COL_THUMBNAIL_PATH + " TEXT, " +
                     COL_OCR_TEXT + " TEXT, " +
                     COL_TIMESTAMP + " INTEGER DEFAULT 0, " +
                     COL_SYNCED + " INTEGER DEFAULT 0" +
@@ -112,6 +114,13 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         return db.insert(TABLE_REELS, null, cv);
     }
 
+    public void updateReelThumbnail(long reelId, String path) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put(COL_THUMBNAIL_PATH, path);
+        db.update(TABLE_REELS, cv, COL_ID + " = ?", new String[]{String.valueOf(reelId)});
+    }
+
     /**
      * Updates watch time and completion for an existing reel record.
      */
@@ -145,6 +154,22 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         ContentValues cv = new ContentValues();
         cv.put(COL_OCR_TEXT, ocrText);
         db.update(TABLE_REELS, cv, COL_ID + " = ?", new String[]{String.valueOf(reelId)});
+    }
+
+    /**
+     * Returns the number of reels watched today.
+     */
+    public int getTodayReelCount() {
+        SQLiteDatabase db = getReadableDatabase();
+        long todayStart = getTodayStartMillis();
+        Cursor cursor = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_REELS + " WHERE " + COL_TIMESTAMP + " >= ?",
+                new String[]{String.valueOf(todayStart)});
+        int count = 0;
+        if (cursor.moveToFirst()) {
+            count = cursor.getInt(0);
+        }
+        cursor.close();
+        return count;
     }
 
     /**
@@ -182,6 +207,7 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
                 obj.put("liked", cursor.getInt(cursor.getColumnIndexOrThrow(COL_LIKED)) == 1);
                 obj.put("commented", cursor.getInt(cursor.getColumnIndexOrThrow(COL_COMMENTED)) == 1);
                 obj.put("shared", cursor.getInt(cursor.getColumnIndexOrThrow(COL_SHARED)) == 1);
+                obj.put("thumbnailPath", cursor.getString(cursor.getColumnIndexOrThrow(COL_THUMBNAIL_PATH)));
                 obj.put("ocrText", cursor.getString(cursor.getColumnIndexOrThrow(COL_OCR_TEXT)));
                 obj.put("timestamp", cursor.getLong(cursor.getColumnIndexOrThrow(COL_TIMESTAMP)));
                 arr.put(obj);
@@ -214,6 +240,7 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
                 obj.put("liked", cursor.getInt(cursor.getColumnIndexOrThrow(COL_LIKED)) == 1);
                 obj.put("commented", cursor.getInt(cursor.getColumnIndexOrThrow(COL_COMMENTED)) == 1);
                 obj.put("shared", cursor.getInt(cursor.getColumnIndexOrThrow(COL_SHARED)) == 1);
+                obj.put("thumbnailPath", cursor.getString(cursor.getColumnIndexOrThrow(COL_THUMBNAIL_PATH)));
                 obj.put("ocrText", cursor.getString(cursor.getColumnIndexOrThrow(COL_OCR_TEXT)));
                 obj.put("timestamp", cursor.getLong(cursor.getColumnIndexOrThrow(COL_TIMESTAMP)));
                 arr.put(obj);

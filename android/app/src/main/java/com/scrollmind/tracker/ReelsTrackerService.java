@@ -1,23 +1,47 @@
 package com.scrollmind.tracker;
 
 import android.accessibilityservice.AccessibilityService;
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 public class ReelsTrackerService extends AccessibilityService {
 
@@ -49,6 +73,13 @@ public class ReelsTrackerService extends AccessibilityService {
     private Runnable progressPoller;
     private static ReelsTrackerService sInstance;
 
+    // OCR & Overlay
+    private WindowManager windowManager;
+    private View overlayView;
+    private TextView counterText;
+    private TextRecognizer textRecognizer;
+    private final Executor ocrExecutor = Executors.newSingleThreadExecutor();
+
     public static ReelsTrackerService getInstance() { return sInstance; }
 
     @Override public void onCreate() {
@@ -56,22 +87,70 @@ public class ReelsTrackerService extends AccessibilityService {
         sInstance = this;
         dbHelper = TrackerDatabaseHelper.getInstance(this);
         handler = new Handler(Looper.getMainLooper());
+        textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         loadToggles();
         Log.i(TAG, "Service created");
     }
 
     @Override public void onServiceConnected() {
         super.onServiceConnected();
+        initOverlay();
         Log.i(TAG, "Service connected");
         emit("onServiceConnected", "{}");
     }
 
     @Override public void onDestroy() {
-        super.onDestroy(); sInstance = null; stopPolling();
+        super.onDestroy(); 
+        sInstance = null; 
+        stopPolling();
+        if (overlayView != null) windowManager.removeView(overlayView);
+        if (textRecognizer != null) textRecognizer.close();
     }
 
     @Override public void onInterrupt() {
         Log.w(TAG, "Service interrupted"); stopPolling();
+    }
+
+    private void initOverlay() {
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        overlayView = new TextView(this);
+        counterText = (TextView) overlayView;
+        
+        // Style the counter (tablet style)
+        counterText.setBackgroundResource(android.R.drawable.editbox_dropdown_light_frame);
+        counterText.setPadding(30, 10, 30, 10);
+        counterText.setTextColor(0xFF000000);
+        counterText.setTextSize(14);
+        counterText.setAlpha(0.8f);
+        counterText.setGravity(Gravity.CENTER);
+        counterText.setText("ScrollMind: 0");
+        counterText.setVisibility(View.GONE);
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY :
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        );
+        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        params.y = 50;
+        
+        windowManager.addView(overlayView, params);
+    }
+
+    private void updateCounterUI() {
+        handler.post(() -> {
+            int count = dbHelper.getTodayReelCount();
+            counterText.setText("Reels Today: " + count);
+            if (isInReelsView) {
+                counterText.setVisibility(View.VISIBLE);
+            } else {
+                counterText.setVisibility(View.GONE);
+            }
+        });
     }
 
     // ── FILE LOGGER FOR DEBUGGING ────────────────────────────────────────────
@@ -89,17 +168,20 @@ public class ReelsTrackerService extends AccessibilityService {
     }
 
     private void scanAndLogAllNodes(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 10) return;
+        if (node == null || depth > 15) return;
 
         String text = getText(node);
         String desc = node.getContentDescription() != null ? node.getContentDescription().toString() : "";
         String id = node.getViewIdResourceName() != null ? node.getViewIdResourceName() : "";
-        
-        String val = !text.isEmpty() ? text : desc;
-        
-        // Only log nodes that actually have text to avoid flooding the file
-        if (!val.isEmpty() && val.length() >= 1) {
-            logToFile("SCAN", id, val.replace("\n", " | "));
+        String cls = node.getClassName() != null ? node.getClassName().toString() : "";
+        String shortCls = cls.contains(".") ? cls.substring(cls.lastIndexOf(".") + 1) : cls;
+
+        // Log ALL nodes with text or desc, even without IDs
+        if (!text.isEmpty()) {
+            logToFile("SCAN_TEXT", id.isEmpty() ? shortCls : id, text.replace("\n", " | "));
+        }
+        if (!desc.isEmpty() && desc.length() > 2) {
+            logToFile("SCAN_DESC", id.isEmpty() ? shortCls : id, desc.replace("\n", " | "));
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -133,7 +215,11 @@ public class ReelsTrackerService extends AccessibilityService {
                 if (isInReelsView && toggleEngagement) onClick(event);
                 break;
             case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED:
-                if (isInReelsView && !isReelsPlayer()) exitReels();
+                if (isInReelsView) {
+                    if (!isReelsPlayer()) exitReels();
+                } else {
+                    checkReelsState();
+                }
                 break;
         }
     }
@@ -144,6 +230,7 @@ public class ReelsTrackerService extends AccessibilityService {
         boolean inReels = isReelsPlayer();
         if (inReels && !isInReelsView) enterReels();
         else if (!inReels && isInReelsView) exitReels();
+        updateCounterUI();
     }
 
     private boolean isReelsPlayer() {
@@ -151,9 +238,15 @@ public class ReelsTrackerService extends AccessibilityService {
         if (root == null) return false;
 
         try {
-            boolean hasReelContainer = false;
-            int screenH = getResources().getDisplayMetrics().heightPixels;
+            // Priority 1: Check for like_count node (user's requested signal)
+            List<AccessibilityNodeInfo> likes = root.findAccessibilityNodeInfosByViewId(IG + ":id/like_count");
+            if (likes != null && !likes.isEmpty()) {
+                recycle(likes);
+                return true;
+            }
 
+            // Priority 2: Check standard Reel containers
+            int screenH = getResources().getDisplayMetrics().heightPixels;
             String[] containerIds = {
                 IG + ":id/clips_viewer_view_pager", IG + ":id/reel_viewer_root",
                 IG + ":id/fragment_clips_viewer_root", IG + ":id/layout_clips_viewer_root",
@@ -164,27 +257,20 @@ public class ReelsTrackerService extends AccessibilityService {
                 if (ns != null && !ns.isEmpty()) {
                     for (AccessibilityNodeInfo n : ns) {
                         Rect b = new Rect(); n.getBoundsInScreen(b);
-                        if (b.height() > screenH * 0.5) { hasReelContainer = true; break; }
+                        if (b.height() > screenH * 0.5) { recycle(ns); return true; }
                     }
                     recycle(ns);
-                    if (hasReelContainer) break;
                 }
             }
-
-            if (!hasReelContainer) {
-                String[] fallbackIds = { IG + ":id/clips_caption", IG + ":id/reel_viewer_caption" };
-                for (String id : fallbackIds) {
-                    List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
-                    if (ns != null && !ns.isEmpty()) {
-                        hasReelContainer = true; recycle(ns); break;
-                    }
-                }
+            
+            // Check caption as fallback
+            String[] fallbackIds = { IG + ":id/clips_caption", IG + ":id/reel_viewer_caption" };
+            for (String id : fallbackIds) {
+                List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
+                if (ns != null && !ns.isEmpty()) { recycle(ns); return true; }
             }
 
-            if (!hasReelContainer) return false;
-
-            String activeTab = getActiveTab(root);
-            return activeTab.equals("Reels") || activeTab.equals("none");
+            return false;
         } finally {
             root.recycle();
         }
@@ -267,22 +353,120 @@ public class ReelsTrackerService extends AccessibilityService {
         reelCounter++;
 
         logToFile("\n======", "======", "NEW REEL SCROLLED (Reel #" + reelCounter + ")");
+        updateCounterUI();
 
         if (toggleMetadata) {
             handler.postDelayed(() -> {
-                AccessibilityNodeInfo r = getRootInActiveWindow();
-                if (r != null) {
-                    try {
-                        // THIS DUMPS THE WHOLE SCREEN TO LOGS.TXT
-                        scanAndLogAllNodes(r, 0); 
-                        scrape(r);
-                    } finally { r.recycle(); }
-                }
-                emitScroll(now);
-            }, 600);
+                takeScreenshotAndProcess();
+            }, 800);
         } else {
             currentReelId = dbHelper.insertReel("", "");
             emitScroll(now);
+        }
+    }
+
+    private void takeScreenshotAndProcess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, ocrExecutor, new TakeScreenshotCallback() {
+                @Override
+                public void onSuccess(@NonNull ScreenshotResult screenshotResult) {
+                    Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshotResult.getHardwareBuffer(), screenshotResult.getColorSpace());
+                    if (bitmap != null) {
+                        // Hardware bitmaps are not directly usable by ML Kit, copy to software
+                        Bitmap swBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false);
+                        processBitmap(swBitmap);
+                        // Recycle original hardware bitmap
+                        bitmap.recycle();
+                    }
+                }
+
+                @Override
+                public void onFailure(int i) {
+                    Log.e(TAG, "Screenshot failed: " + i);
+                    handler.post(() -> {
+                        AccessibilityNodeInfo r = getRootInActiveWindow();
+                        if (r != null) { try { scrape(r); } finally { r.recycle(); } }
+                        emitScroll(System.currentTimeMillis());
+                    });
+                }
+            });
+        } else {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null) { try { scrape(r); } finally { r.recycle(); } }
+            emitScroll(System.currentTimeMillis());
+        }
+    }
+
+    private void processBitmap(Bitmap bitmap) {
+        String thumbPath = saveThumbnail(bitmap);
+        InputImage image = InputImage.fromBitmap(bitmap, 0);
+        textRecognizer.process(image)
+            .addOnSuccessListener(visionText -> {
+                parseOcrResult(visionText);
+                handler.post(() -> {
+                    currentReelId = dbHelper.insertReel(currentUsername, currentCaption);
+                    if (!thumbPath.isEmpty()) dbHelper.updateReelThumbnail(currentReelId, thumbPath);
+                    dbHelper.updateReelOcrText(currentReelId, visionText.getText());
+                    AccessibilityNodeInfo r = getRootInActiveWindow();
+                    if (r != null) { try { scrape(r); } finally { r.recycle(); } }
+                    emitScroll(System.currentTimeMillis());
+                    updateCounterUI();
+                });
+                bitmap.recycle(); // Done with bitmap
+            })
+            .addOnFailureListener(e -> {
+                Log.e(TAG, "OCR failed", e);
+                handler.post(() -> {
+                    currentReelId = dbHelper.insertReel("OCR_FAILED", "");
+                    if (!thumbPath.isEmpty()) dbHelper.updateReelThumbnail(currentReelId, thumbPath);
+                    emitScroll(System.currentTimeMillis());
+                });
+                bitmap.recycle(); // Done with bitmap
+            });
+    }
+
+    private void parseOcrResult(Text result) {
+        currentUsername = "";
+        currentCaption = "";
+        List<Text.TextBlock> blocks = result.getTextBlocks();
+        if (blocks.isEmpty()) return;
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int screenH = dm.heightPixels;
+        int screenW = dm.widthPixels;
+
+        StringBuilder captionBuilder = new StringBuilder();
+        for (Text.TextBlock block : blocks) {
+            Rect rect = block.getBoundingBox();
+            if (rect == null) continue;
+            String text = block.getText().trim();
+            if (rect.top > screenH * 0.5 && rect.left < screenW * 0.8) {
+                if (currentUsername.isEmpty() && (!text.contains(" ") || text.startsWith("@"))) {
+                    currentUsername = text.replace("@", "").split(" ")[0];
+                    continue;
+                }
+                if (text.length() > 3 && !isUiLabel(text)) {
+                    captionBuilder.append(text).append(" ");
+                }
+            }
+        }
+        currentCaption = captionBuilder.toString().trim();
+        logToFile("OCR_USER", "ocr", currentUsername);
+        logToFile("OCR_DESC", "ocr", currentCaption);
+    }
+
+    private String saveThumbnail(Bitmap bitmap) {
+        File dir = new File(getExternalFilesDir(null), "thumbnails");
+        if (!dir.exists()) dir.mkdirs();
+        File file = new File(dir, "reel_" + System.currentTimeMillis() + ".webp");
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            Bitmap scaled = Bitmap.createScaledBitmap(bitmap, bitmap.getWidth() / 4, bitmap.getHeight() / 4, true);
+            scaled.compress(Bitmap.CompressFormat.WEBP, 70, out);
+            scaled.recycle();
+            return file.getAbsolutePath();
+        } catch (Exception e) {
+            Log.e(TAG, "Thumbnail failed", e);
+            return "";
         }
     }
 
@@ -306,52 +490,7 @@ public class ReelsTrackerService extends AccessibilityService {
         currentCaption = "";
         currentLikeCount = "";
 
-        // 1. EXTRACT USERNAME
-        String[] uIds = {
-            IG + ":id/reel_viewer_username", IG + ":id/clips_username",
-            IG + ":id/username_text_view", IG + ":id/clips_viewer_attribution_line"
-        };
-        for (String id : uIds) {
-            List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
-            if (ns != null && !ns.isEmpty()) {
-                for (AccessibilityNodeInfo n : ns) {
-                    String t = getText(n);
-                    if (!t.isEmpty() && !t.contains(" ")) {
-                        currentUsername = t.replace("@", "").trim();
-                        logToFile("FOUND_USER", id, currentUsername);
-                        break;
-                    }
-                }
-                recycle(ns);
-                if (!currentUsername.isEmpty()) break;
-            }
-        }
-        if (currentUsername.isEmpty()) currentUsername = findUsernameHeuristic(root);
-
-        // 2. EXTRACT CAPTION
-        String[] cIds = {
-            IG + ":id/clips_caption", IG + ":id/reel_viewer_caption",
-            IG + ":id/clips_caption_text", IG + ":id/caption_text",
-            IG + ":id/row_feed_caption", IG + ":id/clips_viewer_video_caption"
-        };
-        for (String id : cIds) {
-            List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
-            if (ns != null && !ns.isEmpty()) {
-                for (AccessibilityNodeInfo n : ns) {
-                    String t = deepText(n);
-                    if (!t.isEmpty() && !isUiLabel(t)) {
-                        currentCaption = t.trim();
-                        logToFile("FOUND_DESC", id, currentCaption);
-                        break;
-                    }
-                }
-                recycle(ns);
-                if (!currentCaption.isEmpty()) break;
-            }
-        }
-        if (currentCaption.isEmpty()) currentCaption = findCaptionHeuristic(root);
-
-        // 3. EXTRACT LIKE COUNT (New)
+        // Strategy 1: Like count (always fetchable if node exists)
         String[] lIds = {
             IG + ":id/like_count", IG + ":id/row_feed_textview_likes",
             IG + ":id/clips_viewer_like_count"
@@ -372,23 +511,73 @@ public class ReelsTrackerService extends AccessibilityService {
             }
         }
         
-        // If exact ID fails, try to find a text node that literally says "likes"
-        if (currentLikeCount.isEmpty()) {
-            currentLikeCount = findLikeCountHeuristic(root);
-            if(!currentLikeCount.isEmpty()) {
-                 logToFile("FOUND_LIKES_HEURISTIC", "heuristic", currentLikeCount);
+        // Strategy 2: Content Descriptions (legacy fallback)
+        extractFromContentDescriptions(root, 0);
+    }
+
+    /**
+     * Walk the node tree and extract username + caption from content descriptions.
+     * Instagram Reels uses patterns like:
+     *   "username said The actual caption text"
+     *   "username"  (on the username label)
+     *   "3,898 follow username on Instagram" (on the follow button)
+     */
+    private void extractFromContentDescriptions(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 12) return;
+        // Stop early if we found both
+        if (!currentUsername.isEmpty() && !currentCaption.isEmpty()) return;
+
+        CharSequence descCs = node.getContentDescription();
+        if (descCs != null) {
+            String desc = descCs.toString().trim();
+
+            // Pattern 1: "username said <caption>"
+            if (currentCaption.isEmpty() && desc.contains(" said ")) {
+                int idx = desc.indexOf(" said ");
+                String user = desc.substring(0, idx).trim();
+                String caption = desc.substring(idx + 6).trim();
+                if (!caption.isEmpty() && caption.length() > 3) {
+                    currentCaption = caption;
+                    logToFile("FOUND_DESC_SAID", "contentDescription", currentCaption);
+                    if (currentUsername.isEmpty() && !user.isEmpty() && !user.contains(" ")) {
+                        currentUsername = user.replace("@", "");
+                        logToFile("FOUND_USER_SAID", "contentDescription", currentUsername);
+                    }
+                }
+            }
+
+            // Pattern 2: "N follow username on Instagram" (follow button)
+            if (currentUsername.isEmpty() && desc.contains(" follow ") && desc.contains(" on Instagram")) {
+                int fIdx = desc.indexOf(" follow ");
+                int oIdx = desc.indexOf(" on Instagram");
+                if (fIdx < oIdx) {
+                    String user = desc.substring(fIdx + 8, oIdx).trim();
+                    if (!user.isEmpty() && !user.contains(" ")) {
+                        currentUsername = user.replace("@", "");
+                        logToFile("FOUND_USER_FOLLOW", "contentDescription", currentUsername);
+                    }
+                }
+            }
+
+            // Pattern 3: "Liked by X and Y others" — this is NOT a caption, skip
+            // Pattern 4: Simple username (single word, no spaces, near bottom)
+            if (currentUsername.isEmpty() && !desc.contains(" ") && desc.length() > 1 && desc.length() <= 30) {
+                Rect b = new Rect(); node.getBoundsInScreen(b);
+                int sh = getResources().getDisplayMetrics().heightPixels;
+                if (b.top > sh * 0.5 && b.bottom < sh * 0.95) {
+                    currentUsername = desc.replace("@", "");
+                    logToFile("FOUND_USER_DESC", "contentDescription", currentUsername);
+                }
             }
         }
 
-        if (currentUsername.equals(lastUsername) && currentCaption.equals(lastCaption) && !currentUsername.isEmpty()) {
-            currentReelId = lastReelId; 
-            return;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                extractFromContentDescriptions(child, depth + 1);
+                child.recycle();
+            }
         }
-
-        lastUsername = currentUsername;
-        lastCaption = currentCaption;
-        currentReelId = dbHelper.insertReel(currentUsername, currentCaption);
-        lastReelId = currentReelId;
     }
 
     private boolean isUiLabel(String text) {
