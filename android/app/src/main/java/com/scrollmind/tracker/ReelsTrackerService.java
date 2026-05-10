@@ -27,6 +27,7 @@ public class ReelsTrackerService extends AccessibilityService {
     private String currentUsername = "";
     private String currentCaption = "";
     private boolean debugDumpDone = false; // dump tree once per session
+    private long lastReelId = -1;
 
     // Toggles
     private boolean toggleMetadata = true, toggleWatchTime = true;
@@ -193,12 +194,13 @@ public class ReelsTrackerService extends AccessibilityService {
     private AccessibilityNodeInfo findNodeByContentDesc(AccessibilityNodeInfo node, String target, int depth) {
         if (node == null || depth > 4) return null;
 
+        // NEW: Ignore hidden nodes (fixes the hidden bottom nav issue)
+        if (!node.isVisibleToUser()) return null;
+
         CharSequence desc = node.getContentDescription();
         if (desc != null) {
             String d = desc.toString().trim();
-            // Exact match or starts with (e.g., "Reels" or "Search and explore")
             if (d.equals(target) || d.startsWith(target)) {
-                // Return a copy so caller can recycle independently
                 return AccessibilityNodeInfo.obtain(node);
             }
         }
@@ -360,13 +362,18 @@ public class ReelsTrackerService extends AccessibilityService {
 
         // Avoid duplicate insertion for the same metadata if it's identical to the last one
         // and we haven't scrolled yet (though onScroll resets currentReelId)
-        if (currentUsername.equals(lastUsername) && currentCaption.equals(lastCaption) && currentReelId != -1) {
+       // Replace your existing duplicate check at the bottom of scrape() with this:
+        if (currentUsername.equals(lastUsername) && currentCaption.equals(lastCaption) && !currentUsername.isEmpty()) {
+            // UI hasn't updated yet, or user scrolled back to the same reel
+            // Restore the ID so watch time and completion % continue tracking properly
+            currentReelId = lastReelId; 
             return;
         }
 
         lastUsername = currentUsername;
         lastCaption = currentCaption;
         currentReelId = dbHelper.insertReel(currentUsername, currentCaption);
+        lastReelId = currentReelId; // Save for next comparison
     }
 
     /** Helper to log every node that has text or description */
@@ -397,7 +404,10 @@ public class ReelsTrackerService extends AccessibilityService {
         String[] uiStrings = {
             "turn on sound", "tap to unmute", "follow", "following",
             "share", "like", "comment", "send", "more", "audio",
-            "original audio", "reel", "sponsored"
+            "original audio", "reel", "sponsored", "remix", "use audio", 
+            "use template", "view translation", "see translation", 
+            "translate", "add comment...", "music", "paid partnership",
+            "hide translation", "save"
         };
         for (String ui : uiStrings) {
             if (lower.equals(ui)) return true;
@@ -454,7 +464,9 @@ public class ReelsTrackerService extends AccessibilityService {
     }
 
     private void collectText(AccessibilityNodeInfo node, StringBuilder sb, int depth) {
-        if (node == null || depth > 6) return;
+        // NEW: Add !node.isVisibleToUser() to prevent scraping hidden comments/captions
+        if (node == null || depth > 6 || !node.isVisibleToUser()) return; 
+        
         CharSequence t = node.getText();
         if (t != null && t.length() > 0 && !isUiLabel(t.toString())) {
             if (sb.length() > 0) sb.append(" ");
