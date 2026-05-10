@@ -11,11 +11,11 @@ interface Toggle {
 }
 
 const TOGGLES: Toggle[] = [
-  { key: 'toggle_metadata', label: 'Metadata Scraper', description: 'Grab username and caption from UI', iconName: 'tag-text-outline', iconColor: '#A29BFE' },
-  { key: 'toggle_watchtime', label: 'Watch Time Tracker', description: 'Timer between scroll events', iconName: 'timer-outline', iconColor: '#55EFC4' },
-  { key: 'toggle_completion', label: 'Completion Rate', description: 'Progress bar width measurement', iconName: 'chart-arc', iconColor: '#FFEAA7' },
-  { key: 'toggle_engagement', label: 'Engagement Logger', description: 'Detect likes, comment taps, shares', iconName: 'lightning-bolt-outline', iconColor: '#FF6B6B' },
-  { key: 'toggle_ocr', label: 'OCR Content Log', description: 'Extract on-screen text via ML Kit', iconName: 'eye-outline', iconColor: '#74B9FF' },
+  { key: 'toggle_metadata', label: 'Metadata Scraper', description: 'Grab username and caption from UI', iconName: 'tag-text-outline', iconColor: '#A67C6D' },
+  { key: 'toggle_watchtime', label: 'Watch Time Tracker', description: 'Timer between scroll events', iconName: 'timer-outline', iconColor: '#A67C6D' },
+  { key: 'toggle_completion', label: 'Completion Rate', description: 'Progress bar width measurement', iconName: 'chart-arc', iconColor: '#A67C6D' },
+  { key: 'toggle_engagement', label: 'Engagement Logger', description: 'Detect likes, comment taps, shares', iconName: 'lightning-bolt-outline', iconColor: '#A67C6D' },
+  { key: 'toggle_ocr', label: 'OCR Content Log', description: 'Extract on-screen text via ML Kit', iconName: 'eye-outline', iconColor: '#A67C6D' },
 ];
 
 interface FeatureTogglesProps {
@@ -38,8 +38,8 @@ export function FeatureToggles({ values, onToggle }: FeatureTogglesProps) {
           <Switch
             value={values[t.key] !== false}
             onValueChange={(v) => onToggle(t.key, v)}
-            trackColor={{ false: '#1E1E35', true: '#A29BFE55' }}
-            thumbColor={values[t.key] !== false ? '#A29BFE' : '#55556E'}
+            trackColor={{ false: '#D9C5B2', true: '#A67C6D55' }}
+            thumbColor={values[t.key] !== false ? '#A67C6D' : '#333333'}
           />
         </View>
       ))}
@@ -48,24 +48,28 @@ export function FeatureToggles({ values, onToggle }: FeatureTogglesProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 16 },
+  container: { paddingHorizontal: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#141425',
-    borderRadius: 14,
+    backgroundColor: '#FDFCF9',
+    borderRadius: 0,
     padding: 14,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   iconCircle: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#A67C6D33',
   },
   textWrap: { flex: 1 },
-  label: { color: '#F0F0F5', fontWeight: '600', fontSize: 14 },
-  desc: { color: '#55556E', fontSize: 11, marginTop: 2 },
+  label: { color: '#333333', fontWeight: '800', fontSize: 14, fontFamily: 'serif' },
+  desc: { color: '#A67C6D', fontSize: 11, marginTop: 2 },
 });

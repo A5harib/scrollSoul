@@ -14,8 +14,8 @@ interface ReelHistoryProps {
 }
 
 const AVATAR_COLORS = [
-  '#A29BFE', '#FD79A8', '#55EFC4', '#74B9FF',
-  '#FF6B6B', '#FFEAA7', '#DFE6E9', '#81ECEC',
+  '#A67C6D', '#D9C5B2', '#333333', '#A67C6D',
+  '#D9C5B2', '#333333', '#A67C6D', '#D9C5B2',
 ];
 
 function getAvatarColor(name: string): string {
@@ -77,7 +77,7 @@ const ReelItem = React.memo(({ item, isExpanded, onToggle }: { item: ReelData; i
         <Icon 
           name={isExpanded ? 'chevron-up' : 'chevron-down'} 
           size={20} 
-          color="#3D3D56" 
+          color="#A67C6D" 
           style={styles.chevron}
         />
       </View>
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   historyCount: {
-    color: '#55556E',
+    color: '#333333',
     fontSize: 11,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -184,31 +184,31 @@ const styles = StyleSheet.create({
   clearBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF6B6B10',
+    backgroundColor: '#FDFCF9',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     gap: 4,
-    borderWidth: 1,
-    borderColor: '#FF6B6B22',
+    borderWidth: 1.5,
+    borderColor: '#333333',
   },
   clearText: {
-    color: '#FF6B6B',
+    color: '#333333',
     fontSize: 11,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   row: {
-    backgroundColor: '#141425',
-    borderRadius: 18,
-    marginBottom: 10,
+    backgroundColor: '#FDFCF9',
+    borderRadius: 0,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#1A1A30',
+    borderColor: '#333333',
     overflow: 'hidden',
   },
   rowExpanded: {
-    borderColor: '#A29BFE44',
-    backgroundColor: '#18182E',
+    borderColor: '#A67C6D',
+    borderWidth: 1.5,
   },
   rowMain: {
     flexDirection: 'row',
@@ -218,17 +218,21 @@ const styles = StyleSheet.create({
   thumbnail: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    borderRadius: 0,
     marginRight: 12,
-    backgroundColor: '#0B0B1A',
+    backgroundColor: '#F5F0E6',
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   avatar: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   avatarText: { fontWeight: '900', fontSize: 18 },
   content: { flex: 1 },
@@ -238,13 +242,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   username: { 
-    color: '#F0F0F5', 
+    color: '#333333', 
     fontWeight: '800', 
     fontSize: 14,
     letterSpacing: -0.3,
+    fontFamily: 'serif',
   },
   captionPreview: { 
-    color: '#7B7B9E', 
+    color: '#A67C6D', 
     fontSize: 12, 
     marginTop: 2, 
     lineHeight: 16,
@@ -256,8 +261,8 @@ const styles = StyleSheet.create({
     alignItems: 'center' 
   },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText: { color: '#55556E', fontSize: 11, fontWeight: '600' },
-  time: { color: '#3D3D56', fontSize: 10, fontWeight: '700' },
+  metaText: { color: '#333333', fontSize: 11, fontWeight: '700' },
+  time: { color: '#A67C6D', fontSize: 10, fontWeight: '700' },
   chevron: { marginLeft: 8 },
   
   expandedContent: {
@@ -267,32 +272,32 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#1A1A30',
+    backgroundColor: '#33333322',
     marginBottom: 12,
   },
   fullCaption: {
-    color: '#F0F0F5',
+    color: '#333333',
     fontSize: 13,
     lineHeight: 20,
     fontWeight: '400',
   },
   ocrSection: {
     marginTop: 12,
-    backgroundColor: '#0B0B1A',
+    backgroundColor: '#F5F0E6',
     padding: 10,
-    borderRadius: 10,
+    borderRadius: 0,
     borderWidth: 1,
-    borderColor: '#1A1A30',
+    borderColor: '#333333',
   },
   ocrLabel: {
-    color: '#A29BFE',
+    color: '#A67C6D',
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 1,
     marginBottom: 4,
   },
   ocrText: {
-    color: '#3D3D56',
+    color: '#333333',
     fontSize: 11,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
@@ -306,13 +311,13 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#A29BFE10',
+    backgroundColor: '#A67C6D10',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#A29BFE22',
+    borderColor: '#A67C6D33',
   },
-  emptyText: { color: '#F0F0F5', fontSize: 18, fontWeight: '800', marginTop: 12 },
-  emptyHint: { color: '#55556E', fontSize: 13, marginTop: 6, textAlign: 'center', paddingHorizontal: 40 },
+  emptyText: { color: '#333333', fontSize: 18, fontWeight: '800', marginTop: 12, fontFamily: 'serif' },
+  emptyHint: { color: '#A67C6D', fontSize: 13, marginTop: 6, textAlign: 'center', paddingHorizontal: 40 },
 });
