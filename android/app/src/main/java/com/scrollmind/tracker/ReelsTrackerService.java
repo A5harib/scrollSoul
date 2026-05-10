@@ -22,12 +22,14 @@ public class ReelsTrackerService extends AccessibilityService {
     // State
     private boolean isInReelsView = false;
     private long currentReelId = -1;
+    private long lastReelId = -1; // Added to prevent duplicate bug
     private long lastScrollTimestamp = 0;
     private int reelCounter = 0;
     private String currentUsername = "";
     private String currentCaption = "";
+    private String lastUsername = "";
+    private String lastCaption = "";
     private boolean debugDumpDone = false; // dump tree once per session
-    private long lastReelId = -1;
 
     // Toggles
     private boolean toggleMetadata = true, toggleWatchTime = true;
@@ -92,8 +94,6 @@ public class ReelsTrackerService extends AccessibilityService {
     }
 
     // ── DETECTION ────────────────────────────────────────────────────────────
-    // STRICT: Only the full-screen Reels vertical pager counts.
-    // We check MULTIPLE possible view IDs and require >50% screen height.
 
     private void checkReelsState() {
         boolean inReels = isReelsPlayer();
@@ -107,40 +107,61 @@ public class ReelsTrackerService extends AccessibilityService {
         if (root == null) return false;
 
         try {
+            boolean hasReelContainer = false;
             int screenH = getResources().getDisplayMetrics().heightPixels;
 
-            // Step 1: Check if clips_viewer_view_pager exists and is full-screen
-            boolean hasPager = false;
-            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(
-                    IG + ":id/clips_viewer_view_pager");
-            if (nodes != null && !nodes.isEmpty()) {
-                for (AccessibilityNodeInfo n : nodes) {
-                    Rect b = new Rect();
-                    n.getBoundsInScreen(b);
-                    boolean isFull = b.height() > screenH * 0.5
-                            && b.width() > getResources().getDisplayMetrics().widthPixels * 0.8;
-                    if (isFull) {
-                        hasPager = true;
+            // 1. Look for known reel container IDs (IG changes these often)
+            String[] containerIds = {
+                IG + ":id/clips_viewer_view_pager",
+                IG + ":id/reel_viewer_root",
+                IG + ":id/fragment_clips_viewer_root",
+                IG + ":id/layout_clips_viewer_root",
+                IG + ":id/clips_video_container"
+            };
+            for (String id : containerIds) {
+                List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
+                if (ns != null && !ns.isEmpty()) {
+                    for (AccessibilityNodeInfo n : ns) {
+                        Rect b = new Rect();
+                        n.getBoundsInScreen(b);
+                        // Make sure it takes up most of the screen
+                        if (b.height() > screenH * 0.5) {
+                            hasReelContainer = true;
+                            break;
+                        }
+                    }
+                    recycle(ns);
+                    if (hasReelContainer) break;
+                }
+            }
+
+            // 2. Fallback: Check for Reels specific UI (caption, audio button, etc)
+            if (!hasReelContainer) {
+                String[] fallbackIds = {
+                    IG + ":id/clips_caption", 
+                    IG + ":id/reel_viewer_caption",
+                    IG + ":id/reel_music_attribution_subtitle"
+                };
+                for (String id : fallbackIds) {
+                    List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(id);
+                    if (ns != null && !ns.isEmpty()) {
+                        hasReelContainer = true;
+                        recycle(ns);
                         break;
                     }
                 }
-                recycle(nodes);
             }
 
-            if (!hasPager) return false;
+            if (!hasReelContainer) return false;
 
-            // Step 2: Determine which tab is selected.
-            // If the Reels tab is selected OR no bottom nav is visible → it's the Reels player.
-            // If Home/Search/Profile tab is selected → it's the homepage reel preview.
+            // Determine if we are on Reels tab vs Home tab
             String activeTab = getActiveTab(root);
-            Log.d(TAG, "Pager found. Active tab: " + activeTab);
+            Log.d(TAG, "Reel container found. Active tab: " + activeTab);
 
             if (activeTab.equals("Reels") || activeTab.equals("none")) {
                 // "Reels" tab selected, or no nav bar (dedicated viewer from DM/explore)
-                Log.d(TAG, "REELS CONFIRMED (tab=" + activeTab + ")");
                 return true;
             } else {
-                Log.d(TAG, "Pager present but tab=" + activeTab + " — NOT Reels");
                 return false;
             }
 
@@ -149,17 +170,8 @@ public class ReelsTrackerService extends AccessibilityService {
         }
     }
 
-    /**
-     * Determines which Instagram bottom tab is currently selected.
-     * Returns "Home", "Search", "Reels", "Shopping", "Profile", "unknown", or "none".
-     */
     private String getActiveTab(AccessibilityNodeInfo root) {
-        // Instagram's bottom nav bar: look for the tab_bar or bottom_nav container
-        // Then check which child has isSelected=true
-
-        // Strategy 1: Find tabs by known content descriptions
-        String[] tabDescriptions = {"Home", "Search", "Reels", "Shop", "Profile",
-                                     "Create", "Notifications"};
+        String[] tabDescriptions = {"Home", "Search", "Reels", "Shop", "Profile", "Create", "Notifications"};
 
         for (String tabDesc : tabDescriptions) {
             AccessibilityNodeInfo found = findNodeByContentDesc(root, tabDesc, 0);
@@ -172,8 +184,6 @@ public class ReelsTrackerService extends AccessibilityService {
             }
         }
 
-        // Strategy 2: If we found no tabs at all, there's no bottom nav
-        // (we're in a dedicated viewer)
         boolean hasAnyTab = false;
         for (String tabDesc : tabDescriptions) {
             AccessibilityNodeInfo found = findNodeByContentDesc(root, tabDesc, 0);
@@ -187,15 +197,16 @@ public class ReelsTrackerService extends AccessibilityService {
         return hasAnyTab ? "unknown" : "none";
     }
 
-    /**
-     * Finds a node whose content description EQUALS the target (not contains).
-     * Limits search to 4 levels deep to avoid matching deep nested content.
-     */
     private AccessibilityNodeInfo findNodeByContentDesc(AccessibilityNodeInfo node, String target, int depth) {
         if (node == null || depth > 4) return null;
 
-        // NEW: Ignore hidden nodes (fixes the hidden bottom nav issue)
-        if (!node.isVisibleToUser()) return null;
+        // Custom bounds visibility check (Fixes the Homepage vs Reels page bug safely)
+        Rect b = new Rect();
+        node.getBoundsInScreen(b);
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        if (b.height() <= 0 || b.top >= screenH || b.bottom <= 0) {
+            return null; 
+        }
 
         CharSequence desc = node.getContentDescription();
         if (desc != null) {
@@ -243,19 +254,15 @@ public class ReelsTrackerService extends AccessibilityService {
     private void onScroll(AccessibilityEvent event) {
         long now = System.currentTimeMillis();
         if (now - lastScrollTimestamp < SCROLL_DEBOUNCE_MS) {
-            Log.d(TAG, "Scroll debounced (" + (now - lastScrollTimestamp) + "ms)");
             return;
         }
 
-        // Finalize previous reel
         if (toggleWatchTime && currentReelId > 0) {
             long wt = now - lastScrollTimestamp;
             double comp = getCompletion();
             dbHelper.updateReelWatchData(currentReelId, wt, comp);
-            Log.d(TAG, "Prev reel #" + (reelCounter) + " watch=" + wt + "ms comp=" + Math.round(comp) + "%");
         }
 
-        // Reset current reel data to avoid "sticking" to previous reel
         currentReelId = -1;
         currentUsername = "";
         currentCaption = ""; 
@@ -263,7 +270,6 @@ public class ReelsTrackerService extends AccessibilityService {
         lastScrollTimestamp = now;
         reelCounter++;
 
-        // Dump tree once for debugging (first scroll only)
         if (!debugDumpDone) {
             debugDumpDone = true;
             AccessibilityNodeInfo dumpRoot = getRootInActiveWindow();
@@ -273,14 +279,11 @@ public class ReelsTrackerService extends AccessibilityService {
             }
         }
 
-        // Delayed scrape (let UI settle)
         if (toggleMetadata) {
             handler.postDelayed(() -> {
                 AccessibilityNodeInfo r = getRootInActiveWindow();
                 if (r != null) {
                     try {
-                        // Log all available text nodes for debugging
-                        logAllTextNodes(r, 0);
                         scrape(r);
                     } finally { r.recycle(); }
                 }
@@ -302,7 +305,6 @@ public class ReelsTrackerService extends AccessibilityService {
             d.put("timestamp", ts);
             emit("onReelScrolled", d.toString());
         } catch (JSONException e) {}
-        Log.i(TAG, "REEL #" + reelCounter + " user=@" + currentUsername + " caption=\"" + (currentCaption.length() > 50 ? currentCaption.substring(0,50) + "..." : currentCaption) + "\"");
     }
 
     // ── SCRAPING ─────────────────────────────────────────────────────────────
@@ -311,7 +313,6 @@ public class ReelsTrackerService extends AccessibilityService {
         currentUsername = "";
         currentCaption = "";
 
-        // Username IDs (Reels & Dedicated Viewers)
         String[] uIds = {
             IG + ":id/reel_viewer_username", IG + ":id/clips_username",
             IG + ":id/username_text_view", IG + ":id/clips_viewer_attribution_line",
@@ -331,11 +332,8 @@ public class ReelsTrackerService extends AccessibilityService {
                 if (!currentUsername.isEmpty()) break;
             }
         }
-        if (currentUsername.isEmpty()) {
-            currentUsername = findUsernameHeuristic(root);
-        }
+        if (currentUsername.isEmpty()) currentUsername = findUsernameHeuristic(root);
 
-        // Caption IDs (Reels, Blends, DMs)
         String[] cIds = {
             IG + ":id/clips_caption", IG + ":id/reel_viewer_caption",
             IG + ":id/clips_caption_text", IG + ":id/caption_text",
@@ -356,16 +354,10 @@ public class ReelsTrackerService extends AccessibilityService {
                 if (!currentCaption.isEmpty()) break;
             }
         }
-        if (currentCaption.isEmpty()) {
-            currentCaption = findCaptionHeuristic(root);
-        }
+        if (currentCaption.isEmpty()) currentCaption = findCaptionHeuristic(root);
 
-        // Avoid duplicate insertion for the same metadata if it's identical to the last one
-        // and we haven't scrolled yet (though onScroll resets currentReelId)
-       // Replace your existing duplicate check at the bottom of scrape() with this:
+        // Fixes the duplication bug: Restore ID if the UI hasn't caught up with the scroll yet
         if (currentUsername.equals(lastUsername) && currentCaption.equals(lastCaption) && !currentUsername.isEmpty()) {
-            // UI hasn't updated yet, or user scrolled back to the same reel
-            // Restore the ID so watch time and completion % continue tracking properly
             currentReelId = lastReelId; 
             return;
         }
@@ -373,34 +365,12 @@ public class ReelsTrackerService extends AccessibilityService {
         lastUsername = currentUsername;
         lastCaption = currentCaption;
         currentReelId = dbHelper.insertReel(currentUsername, currentCaption);
-        lastReelId = currentReelId; // Save for next comparison
+        lastReelId = currentReelId;
     }
 
-    /** Helper to log every node that has text or description */
-    private void logAllTextNodes(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 10) return;
-
-        String id = node.getViewIdResourceName();
-        String text = getText(node);
-        String desc = node.getContentDescription() != null ? node.getContentDescription().toString() : "";
-
-        if (id != null && (!text.isEmpty() || !desc.isEmpty())) {
-            String shortId = id.contains(":") ? id.substring(id.lastIndexOf("/") + 1) : id;
-            Log.d(TAG, "read_node -> " + shortId + ": " + (text.isEmpty() ? desc : text));
-        }
-
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                logAllTextNodes(child, depth + 1);
-                child.recycle();
-            }
-        }
-    }
-
-    /** Filter out UI labels that aren't real captions */
     private boolean isUiLabel(String text) {
         String lower = text.toLowerCase().trim();
+        // Added ignore cases so description isn't messed up
         String[] uiStrings = {
             "turn on sound", "tap to unmute", "follow", "following",
             "share", "like", "comment", "send", "more", "audio",
@@ -422,7 +392,6 @@ public class ReelsTrackerService extends AccessibilityService {
             Rect b = new Rect(); node.getBoundsInScreen(b);
             int sh = getResources().getDisplayMetrics().heightPixels;
             if (b.top > sh * 0.5 && b.bottom < sh * 0.95) {
-                // Check it's clickable (usernames are tappable)
                 if (node.isClickable() || (node.getParent() != null && node.getParent().isClickable())) {
                     return t.replace("@", "");
                 }
@@ -464,9 +433,16 @@ public class ReelsTrackerService extends AccessibilityService {
     }
 
     private void collectText(AccessibilityNodeInfo node, StringBuilder sb, int depth) {
-        // NEW: Add !node.isVisibleToUser() to prevent scraping hidden comments/captions
-        if (node == null || depth > 6 || !node.isVisibleToUser()) return; 
+        if (node == null || depth > 6) return;
         
+        // Bounds check to ensure we aren't pulling hidden text/comments
+        Rect b = new Rect();
+        node.getBoundsInScreen(b);
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        if (b.height() <= 0 || b.top >= screenH || b.bottom <= 0) {
+            return; 
+        }
+
         CharSequence t = node.getText();
         if (t != null && t.length() > 0 && !isUiLabel(t.toString())) {
             if (sb.length() > 0) sb.append(" ");
@@ -545,14 +521,10 @@ public class ReelsTrackerService extends AccessibilityService {
             if ((like || comment || share) && currentReelId > 0) {
                 dbHelper.updateReelEngagement(currentReelId, like, comment, share);
                 String action = like ? "like" : comment ? "comment_tap" : "share";
-                Log.d(TAG, "ENGAGEMENT: " + action + " on @" + currentUsername);
                 try { JSONObject d = new JSONObject(); d.put("reelId", currentReelId); d.put("username", currentUsername); d.put("action", action); d.put("timestamp", System.currentTimeMillis()); emit("onEngagement", d.toString()); } catch (JSONException e) {}
             }
         } finally { src.recycle(); }
     }
-
-    private String lastUsername = "";
-    private String lastCaption = "";
 
     // ── Database ─────────────────────────────────────────────────────────────────
 
