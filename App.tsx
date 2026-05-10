@@ -126,23 +126,28 @@ function AppContent() {
         )}
 
         {/* ── Main content ────────────────────────────────── */}
-        <ScrollView style={styles.mainScroll} showsVerticalScrollIndicator={false}>
-          {tab === 'dashboard' && <StatsDashboard stats={tracker.stats} />}
-          {tab === 'history' && <ReelHistory reels={tracker.recentReels} onClearHistory={tracker.clearHistory} />}
-          {tab === 'settings' && (
-            <View style={styles.settingsSection}>
-              <Text style={styles.sectionHeading}>System Configuration</Text>
-              <FeatureToggles values={toggleValues} onToggle={handleToggle} />
-              
-              <View style={styles.techSpecs}>
-                <SpecRow label="CORE" value="V2.1.0-MLKIT" />
-                <SpecRow label="UPLINK" value="ACTIVE_LOCAL" />
-                <SpecRow label="LATENCY" value="~150ms" />
-              </View>
-            </View>
+        <View style={styles.mainContent}>
+          {tab === 'history' ? (
+            <ReelHistory reels={tracker.recentReels} onClearHistory={tracker.clearHistory} />
+          ) : (
+            <ScrollView style={styles.mainScroll} showsVerticalScrollIndicator={false}>
+              {tab === 'dashboard' && <StatsDashboard stats={tracker.stats} />}
+              {tab === 'settings' && (
+                <View style={styles.settingsSection}>
+                  <Text style={styles.sectionHeading}>System Configuration</Text>
+                  <FeatureToggles values={toggleValues} onToggle={handleToggle} />
+                  
+                  <View style={styles.techSpecs}>
+                    <SpecRow label="CORE" value="V2.1.0-MLKIT" />
+                    <SpecRow label="UPLINK" value="ACTIVE_LOCAL" />
+                    <SpecRow label="LATENCY" value="~150ms" />
+                  </View>
+                </View>
+              )}
+              <View style={{ height: 100 }} />
+            </ScrollView>
           )}
-          <View style={{ height: 100 }} />
-        </ScrollView>
+        </View>
       </Animated.View>
       
       {/* ── Decorator ────────────────────────────────── */}
@@ -288,6 +293,7 @@ const styles = StyleSheet.create({
   },
   liveText: { color: '#55556E', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   liveUser: { color: '#A29BFE' },
+  mainContent: { flex: 1 },
   mainScroll: { flex: 1 },
   settingsSection: { paddingHorizontal: 20 },
   sectionHeading: {

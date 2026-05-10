@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, LayoutAnimation, Platform, UIManager } from 'react-native';
+import React, { useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, LayoutAnimation, Platform, UIManager, FlatList } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { ReelData } from '../hooks/useReelsTracker';
 import { formatDuration, timeAgo } from '../utils/format';
@@ -26,8 +26,9 @@ function getAvatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-function ReelItem({ item, isExpanded, onToggle }: { item: ReelData; isExpanded: boolean; onToggle: () => void }) {
-  const color = getAvatarColor(item.username || 'x');
+// Optimized ReelItem with Memo
+const ReelItem = React.memo(({ item, isExpanded, onToggle }: { item: ReelData; isExpanded: boolean; onToggle: () => void }) => {
+  const color = useMemo(() => getAvatarColor(item.username || 'x'), [item.username]);
 
   return (
     <TouchableOpacity 
@@ -97,15 +98,15 @@ function ReelItem({ item, isExpanded, onToggle }: { item: ReelData; isExpanded: 
       )}
     </TouchableOpacity>
   );
-}
+});
 
 export function ReelHistory({ reels, onClearHistory }: ReelHistoryProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const toggleExpand = (id: number) => {
+  const toggleExpand = useCallback((id: number) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpandedId(expandedId === id ? null : id);
-  };
+    setExpandedId(prev => prev === id ? null : id);
+  }, []);
 
   const handleClear = () => {
     Alert.alert(
@@ -117,6 +118,24 @@ export function ReelHistory({ reels, onClearHistory }: ReelHistoryProps) {
       ],
     );
   };
+
+  const renderHeader = () => (
+    <View style={styles.historyHeader}>
+      <Text style={styles.historyCount}>{reels.length} captured items</Text>
+      <TouchableOpacity style={styles.clearBtn} onPress={handleClear}>
+        <Icon name="trash-can-outline" size={14} color="#FF6B6B" />
+        <Text style={styles.clearText}>Purge</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderItem = ({ item }: { item: ReelData }) => (
+    <ReelItem 
+      item={item} 
+      isExpanded={expandedId === item.id}
+      onToggle={() => toggleExpand(item.id)}
+    />
+  );
 
   if (reels.length === 0) {
     return (
@@ -131,29 +150,23 @@ export function ReelHistory({ reels, onClearHistory }: ReelHistoryProps) {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.historyHeader}>
-        <Text style={styles.historyCount}>{reels.length} captured items</Text>
-        <TouchableOpacity style={styles.clearBtn} onPress={handleClear}>
-          <Icon name="trash-can-outline" size={14} color="#FF6B6B" />
-          <Text style={styles.clearText}>Purge</Text>
-        </TouchableOpacity>
-      </View>
-
-      {reels.map((item) => (
-        <ReelItem 
-          key={String(item.id)} 
-          item={item} 
-          isExpanded={expandedId === item.id}
-          onToggle={() => toggleExpand(item.id)}
-        />
-      ))}
-    </View>
+    <FlatList
+      data={reels}
+      keyExtractor={(item) => String(item.id)}
+      renderItem={renderItem}
+      ListHeaderComponent={renderHeader}
+      contentContainerStyle={styles.listContent}
+      initialNumToRender={10}
+      maxToRenderPerBatch={5}
+      windowSize={5}
+      removeClippedSubviews={true}
+      showsVerticalScrollIndicator={false}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 16, paddingBottom: 40 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 120 },
   historyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
