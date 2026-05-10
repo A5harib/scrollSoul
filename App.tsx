@@ -19,12 +19,14 @@ import { useReelsTracker } from './src/hooks/useReelsTracker';
 import { StatsDashboard } from './src/components/StatsDashboard';
 import { ReelHistory } from './src/components/ReelHistory';
 import { FeatureToggles } from './src/components/FeatureToggles';
+import { AnalyticsTab } from './src/components/AnalyticsTab';
 
-type Tab = 'dashboard' | 'history' | 'settings';
+type Tab = 'dashboard' | 'history' | 'analytics' | 'settings';
 
 const TAB_CONFIG: { key: Tab; icon: string; label: string }[] = [
   { key: 'history', icon: 'history', label: 'History' },
   { key: 'dashboard', icon: 'monitor-eye', label: 'Monitor' },
+  { key: 'analytics', icon: 'chart-arc', label: 'Insights' },
   { key: 'settings', icon: 'cog-outline', label: 'Settings' },
 ];
 
@@ -258,6 +260,9 @@ function AppContent() {
               >
                 {tab === 'dashboard' && (
                   <StatsDashboard stats={tracker.stats} />
+                )}
+                {tab === 'analytics' && (
+                  <AnalyticsTab stats={tracker.stats} />
                 )}
                 {tab === 'settings' && (
                   <View style={styles.settingsSection}>

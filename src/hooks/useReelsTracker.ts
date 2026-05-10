@@ -29,6 +29,9 @@ export interface Stats {
   totalComments: number;
   todayReels: number;
   todayWatchTimeMs: number;
+  hourlyActivity?: number[];
+  topCreators?: Array<{ username: string; watchTimeMs: number; count: number }>;
+  topKeywords?: Array<{ text: string; value: number }>;
 }
 
 export interface ServiceStatus {
@@ -49,6 +52,9 @@ export function useReelsTracker() {
     totalReels: 0, totalWatchTimeMs: 0, avgWatchTimeMs: 0,
     avgCompletionPercent: 0, totalLikes: 0, totalComments: 0,
     todayReels: 0, todayWatchTimeMs: 0,
+    hourlyActivity: Array(24).fill(0),
+    topCreators: [],
+    topKeywords: [],
   });
   const [recentReels, setRecentReels] = useState<ReelData[]>([]);
   const [liveEvent, setLiveEvent] = useState<{ name: string; data: any } | null>(null);

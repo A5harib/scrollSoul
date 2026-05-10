@@ -274,11 +274,86 @@ public void updateReelMetadata(long reelId, String username, String caption) {
             if (c8.moveToFirst()) stats.put("todayWatchTimeMs", c8.getLong(0));
             c8.close();
 
+            // ── NEW: HOURLY ACTIVITY ──────────────────────
+            JSONArray hourly = new JSONArray();
+            for (int h = 0; h < 24; h++) hourly.put(0);
+            
+            Cursor cHourly = db.rawQuery(
+                "SELECT strftime('%H', " + COL_TIMESTAMP + "/1000, 'unixepoch', 'localtime') as hr, COUNT(*) as cnt " +
+                "FROM " + TABLE_REELS + " GROUP BY hr", null);
+            while (cHourly.moveToNext()) {
+                try {
+                    int hour = Integer.parseInt(cHourly.getString(0));
+                    int count = cHourly.getInt(1);
+                    if (hour >= 0 && hour < 24) hourly.put(hour, count);
+                } catch (Exception ignored) {}
+            }
+            cHourly.close();
+            stats.put("hourlyActivity", hourly);
+
+            // ── NEW: TOP CREATORS (THE PANTHEON) ──────────
+            JSONArray creators = new JSONArray();
+            Cursor cCreators = db.rawQuery(
+                "SELECT " + COL_USERNAME + ", SUM(" + COL_WATCH_TIME_MS + ") as total_time, COUNT(*) as count " +
+                "FROM " + TABLE_REELS + " WHERE " + COL_USERNAME + " IS NOT NULL AND " + COL_USERNAME + " != '' " +
+                "GROUP BY " + COL_USERNAME + " ORDER BY total_time DESC LIMIT 10", null);
+            while (cCreators.moveToNext()) {
+                JSONObject creator = new JSONObject();
+                creator.put("username", cCreators.getString(0));
+                creator.put("watchTimeMs", cCreators.getLong(1));
+                creator.put("count", cCreators.getInt(2));
+                creators.put(creator);
+            }
+            cCreators.close();
+            stats.put("topCreators", creators);
+
+            // ── NEW: TOP KEYWORDS (THE NEURAL WEB) ────────
+            java.util.Map<String, Integer> wordFreq = new java.util.HashMap<>();
+            Cursor cWords = db.rawQuery(
+                "SELECT " + COL_CAPTION + ", " + COL_OCR_TEXT + " FROM " + TABLE_REELS + 
+                " ORDER BY " + COL_TIMESTAMP + " DESC LIMIT 200", null);
+            while (cWords.moveToNext()) {
+                processText(cWords.getString(0), wordFreq);
+                processText(cWords.getString(1), wordFreq);
+            }
+            cWords.close();
+
+            JSONArray keywords = new JSONArray();
+            wordFreq.entrySet().stream()
+                .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue()))
+                .limit(40)
+                .forEach(e -> {
+                    try {
+                        JSONObject kw = new JSONObject();
+                        kw.put("text", e.getKey());
+                        kw.put("value", e.getValue());
+                        keywords.put(kw);
+                    } catch (JSONException ignored) {}
+                });
+            stats.put("topKeywords", keywords);
+
         } catch (JSONException e) {
             e.printStackTrace();
         }
         return stats.toString();
     }
+
+    private void processText(String text, java.util.Map<String, Integer> freq) {
+        if (text == null || text.isEmpty()) return;
+        String[] words = text.toLowerCase().split("[^a-z0-9]+");
+        for (String w : words) {
+            if (w.length() > 3 && !isStopWord(w)) {
+                freq.put(w, freq.getOrDefault(w, 0) + 1);
+            }
+        }
+    }
+
+    private boolean isStopWord(String w) {
+        String[] stops = {"this", "that", "with", "from", "your", "their", "video", "reels", "instagram", "what", "when", "where", "like", "they", "there"};
+        for (String s : stops) if (s.equals(w)) return true;
+        return false;
+    }
+
 
     public void clearAllReels() {
         SQLiteDatabase db = getWritableDatabase();
