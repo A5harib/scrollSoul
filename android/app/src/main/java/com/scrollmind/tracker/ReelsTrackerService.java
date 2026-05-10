@@ -291,6 +291,121 @@ public class ReelsTrackerService extends AccessibilityService {
         }
     }
 
+    // ── OCR PARSER (IMPROVED) ────────────────────────────────────────────
+
+private String[] parseOcrToUsernameAndCaption(String rawOcr) {
+    if (rawOcr == null || rawOcr.trim().isEmpty()) return new String[]{"", ""};
+
+    String ocrUsername = "";
+    StringBuilder ocrCaption = new StringBuilder();
+    java.util.Set<String> seenLines = new java.util.HashSet<>();
+
+    for (String rawLine : rawOcr.split("\n")) {
+        String line = rawLine.trim();
+        if (line.isEmpty()) continue;
+
+        // 1. Skip our own app's overlay text
+        if (line.startsWith("Reels Today:") || line.startsWith("Reels:")) continue;
+
+        // 2. Skip status bar time strings: "12:25", "9:41", "12:25 9", "9:41 AM"
+        if (isOcrTimeString(line)) continue;
+
+        // 3. Skip engagement numbers: "69.7K", "2,694", or multiple like "69.7K 2,694 22K"
+        if (isEngagementNumbers(line)) continue;
+
+        // 4. Skip known Instagram UI labels (like, follow, share, etc.)
+        if (isUiLabel(line)) continue;
+
+        // 5. Skip very short status bar noise ("ITY", "bT", "LTE") — but allow "@x"
+        if (line.length() <= 3 && !line.startsWith("@")) continue;
+
+        // 6. Skip "Liked by username and X others"
+        String lower = line.toLowerCase(Locale.US);
+        if (lower.startsWith("liked by") || lower.contains("liked by ")) continue;
+
+        // 7. Skip audio/music lines — Instagram uses · to separate track · artist
+        if (line.contains("♪") || line.contains("♫") || line.contains(" · ")
+                || line.contains(" • ") || lower.startsWith("original audio")) continue;
+
+        // 8. Username detection
+        if (ocrUsername.isEmpty()) {
+            if (line.startsWith("@")) {
+                // e.g. "@cinelated" or "@cinelated Follow"
+                String candidate = line.substring(1).split("\\s+")[0];
+                if (isValidIgUsername(candidate)) {
+                    ocrUsername = candidate;
+                    continue;
+                }
+            } else if (!line.contains(" ") && isValidIgUsername(line)) {
+                // Single word, no spaces → likely a username
+                ocrUsername = line;
+                continue;
+            }
+        } else {
+            // Already found username; skip its duplicate appearances
+            if (line.equalsIgnoreCase(ocrUsername)
+                    || line.equalsIgnoreCase("@" + ocrUsername)
+                    || line.toLowerCase(Locale.US).startsWith(ocrUsername.toLowerCase(Locale.US) + " ")) {
+                continue;
+            }
+        }
+
+        // 9. Add to caption if it's meaningful text (not noise) and not a duplicate
+        String lineKey = line.toLowerCase(Locale.US);
+        if (isMeaningfulContent(line) && !seenLines.contains(lineKey)) {
+            seenLines.add(lineKey);
+            ocrCaption.append(line).append(" ");
+        }
+    }
+
+    return new String[]{ocrUsername, ocrCaption.toString().trim()};
+}
+
+/**
+ * Matches: "12:25"  "9:41"  "12:25 9"  "9:41 AM"  "12:25 AM"
+ * These are phone status bar times being mistaken for usernames.
+ */
+private boolean isOcrTimeString(String line) {
+    return line.matches("^\\d{1,2}:\\d{2}(\\s*(AM|PM|[ap]m|\\d{1,3}))?$");
+}
+
+/**
+ * Matches single numbers ("69.7K", "2,694") or
+ * multiple numbers on one line ("69.7K 2,694 22K 5,780").
+ */
+private boolean isEngagementNumbers(String line) {
+    // Single engagement number
+    if (line.matches("^[\\d,\\.]+[KkMmBb]?$")) return true;
+    // Row of numbers separated by spaces
+    if (line.matches("^([\\d,\\.]+[KkMmBb]?\\s+){1,}[\\d,\\.]+[KkMmBb]?$")) return true;
+    return false;
+}
+
+/**
+ * Instagram usernames: 2-30 chars, starts with a letter,
+ * only letters/digits/underscore/period, no 4+ consecutive digits.
+ */
+private boolean isValidIgUsername(String s) {
+    if (s == null || s.length() < 2 || s.length() > 30) return false;
+    if (!s.matches("^[a-zA-Z][a-zA-Z0-9._]*$")) return false;
+    if (isOcrTimeString(s)) return false;
+    if (s.matches(".*\\d{4,}.*")) return false; // e.g. "12345" is not a username
+    return true;
+}
+
+/**
+ * A line is meaningful caption text if it's long enough
+ * and at least 35% of its characters are letters.
+ */
+private boolean isMeaningfulContent(String line) {
+    if (line.length() < 4) return false;
+    long alphaCount = 0;
+    for (char c : line.toCharArray()) if (Character.isLetter(c)) alphaCount++;
+    return alphaCount >= line.length() * 0.35;
+}
+
+
+
     private void processBitmap(Bitmap bitmap, long targetReelId) {
         String thumbPath = saveThumbnail(bitmap);
         InputImage image = InputImage.fromBitmap(bitmap, 0);
@@ -301,45 +416,9 @@ public class ReelsTrackerService extends AccessibilityService {
                 int screenH = dm.heightPixels;
                 int screenW = dm.widthPixels;
                 
-                String ocrUser = "";
-                StringBuilder ocrCap = new StringBuilder();
-                StringBuilder ocrRawDump = new StringBuilder("\n--- OCR DUMP REEL " + targetReelId + " ---\n");
-                
-                for (Text.TextBlock block : visionText.getTextBlocks()) {
-                    Rect bRect = block.getBoundingBox();
-                    if (bRect == null) continue;
-                    
-                    ocrRawDump.append("BLOCK ").append(bRect.toShortString()).append(": ").append(block.getText().replace("\n", " | ")).append("\n");
-
-                    if (bRect.top < screenH * 0.5 || bRect.left > screenW * 0.8) {
-                        continue;
-                    }
-
-                    for (Text.Line lineObj : block.getLines()) {
-                        String line = lineObj.getText().trim();
-                        if (line.isEmpty() || isUiLabel(line)) continue;
-
-                        if (ocrUser.isEmpty()) {
-                            if (line.startsWith("@")) {
-                                ocrUser = line.replace("@", "").trim().split(" ")[0];
-                                continue;
-                            } else if (line.matches("^[a-z0-9_.]+$") && line.length() > 2 && line.length() < 25) {
-                                ocrUser = line;
-                                continue;
-                            }
-                        }
-                        
-                        if (line.length() > 3 && !line.matches("^[0-9]+[kmKM]?$")) {
-                            ocrCap.append(line).append(" ");
-                        }
-                    }
-                }
-                
-                ocrRawDump.append("------------------------");
-                appendRawLog(ocrRawDump.toString());
-
-                final String finalUser = ocrUser;
-                final String finalCap = ocrCap.toString().trim();
+                String[] parsed = parseOcrToUsernameAndCaption(visionText.getText());
+                final String finalUser = parsed[0];
+                final String finalCap = parsed[1];
 
                 handler.post(() -> {
                     if (targetReelId > 0) {
