@@ -15,6 +15,7 @@ export interface ReelData {
   liked: boolean;
   commented: boolean;
   shared: boolean;
+  thumbnailPath?: string;
   ocrText: string;
   timestamp: number;
 }

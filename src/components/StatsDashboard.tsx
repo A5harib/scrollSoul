@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { formatDuration, formatNumber } from '../utils/format';
 
@@ -10,17 +10,22 @@ interface StatsCardProps {
   iconColor: string;
   accent: string;
   subtitle?: string;
+  isLarge?: boolean;
 }
 
-function StatsCard({ label, value, iconName, iconColor, accent, subtitle }: StatsCardProps) {
+function StatsCard({ label, value, iconName, iconColor, accent, subtitle, isLarge }: StatsCardProps) {
   return (
-    <View style={[styles.card, { borderLeftColor: accent }]}>
-      <View style={[styles.iconCircle, { backgroundColor: accent + '18' }]}>
-        <Icon name={iconName} size={18} color={iconColor} />
+    <View style={[styles.card, isLarge && styles.cardLarge]}>
+      <View style={[styles.glow, { backgroundColor: accent + '10' }]} />
+      <View style={styles.cardHeader}>
+        <View style={[styles.iconBox, { borderColor: accent + '33' }]}>
+          <Icon name={iconName} size={18} color={iconColor} />
+        </View>
+        <Text style={styles.label}>{label}</Text>
       </View>
-      <Text style={styles.value}>{value}</Text>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.value, isLarge && styles.valueLarge]}>{value}</Text>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      <View style={[styles.accentBar, { backgroundColor: accent }]} />
     </View>
   );
 }
@@ -40,96 +45,135 @@ interface StatsDashboardProps {
 
 export function StatsDashboard({ stats }: StatsDashboardProps) {
   return (
-    <View style={styles.grid}>
-      <StatsCard
-        iconName="cellphone-play"
-        iconColor="#FF6B6B"
-        accent="#FF6B6B"
-        label="Today"
-        value={formatNumber(stats.todayReels)}
-        subtitle={formatDuration(stats.todayWatchTimeMs) + ' watched'}
-      />
-      <StatsCard
-        iconName="movie-open-outline"
-        iconColor="#A29BFE"
-        accent="#A29BFE"
-        label="All Reels"
-        value={formatNumber(stats.totalReels)}
-      />
-      <StatsCard
-        iconName="timer-outline"
-        iconColor="#55EFC4"
-        accent="#55EFC4"
-        label="Avg Watch"
-        value={formatDuration(stats.avgWatchTimeMs)}
-      />
-      <StatsCard
-        iconName="chart-arc"
-        iconColor="#FFEAA7"
-        accent="#FFEAA7"
-        label="Completion"
-        value={Math.round(stats.avgCompletionPercent || 0) + '%'}
-      />
-      <StatsCard
-        iconName="heart-outline"
-        iconColor="#FD79A8"
-        accent="#FD79A8"
-        label="Liked Reels"
-        value={formatNumber(stats.totalLikes)}
-      />
-      <StatsCard
-        iconName="comment-text-outline"
-        iconColor="#74B9FF"
-        accent="#74B9FF"
-        label="Comment Taps"
-        value={formatNumber(stats.totalComments)}
-      />
+    <View style={styles.container}>
+      <View style={styles.mainRow}>
+        <StatsCard
+          isLarge
+          iconName="lightning-bolt"
+          iconColor="#A29BFE"
+          accent="#A29BFE"
+          label="Sessions Today"
+          value={formatNumber(stats.todayReels)}
+          subtitle={formatDuration(stats.todayWatchTimeMs) + ' total focus'}
+        />
+      </View>
+      
+      <View style={styles.grid}>
+        <StatsCard
+          iconName="chart-box-outline"
+          iconColor="#55EFC4"
+          accent="#55EFC4"
+          label="All Time"
+          value={formatNumber(stats.totalReels)}
+        />
+        <StatsCard
+          iconName="timer-sand"
+          iconColor="#FFEAA7"
+          accent="#FFEAA7"
+          label="Avg Tempo"
+          value={formatDuration(stats.avgWatchTimeMs)}
+        />
+        <StatsCard
+          iconName="bullseye-arrow"
+          iconColor="#81ECEC"
+          accent="#81ECEC"
+          label="Retention"
+          value={Math.round(stats.avgCompletionPercent || 0) + '%'}
+        />
+        <StatsCard
+          iconName="heart-flash"
+          iconColor="#FD79A8"
+          accent="#FD79A8"
+          label="Engaged"
+          value={formatNumber(stats.totalLikes)}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  mainRow: {
+    marginBottom: 12,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    gap: 10,
+    gap: 12,
   },
   card: {
     backgroundColor: '#141425',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
-    width: '47.5%',
-    borderLeftWidth: 3,
-    minHeight: 110,
-    justifyContent: 'center',
+    width: '48.2%',
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: '#1A1A30',
+    overflow: 'hidden',
+    position: 'relative',
   },
-  iconCircle: {
+  cardLarge: {
+    width: '100%',
+    minHeight: 140,
+    padding: 24,
+  },
+  glow: {
+    position: 'absolute',
+    top: -20,
+    right: -20,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  iconBox: {
     width: 32,
     height: 32,
     borderRadius: 10,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    backgroundColor: '#0B0B1A',
   },
   value: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '900',
     color: '#F0F0F5',
     letterSpacing: -0.5,
   },
+  valueLarge: {
+    fontSize: 42,
+    marginTop: -4,
+  },
   label: {
-    fontSize: 11,
-    color: '#7B7B9E',
-    marginTop: 3,
+    fontSize: 10,
+    color: '#55556E',
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    fontWeight: '600',
+    letterSpacing: 1.5,
+    fontWeight: '800',
   },
   subtitle: {
-    fontSize: 11,
-    color: '#55556E',
-    marginTop: 4,
+    fontSize: 12,
+    color: '#7B7B9E',
+    marginTop: 6,
+    fontWeight: '500',
+  },
+  accentBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    opacity: 0.6,
   },
 });

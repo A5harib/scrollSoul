@@ -217,7 +217,15 @@ public class TrackerDatabaseHelper extends SQLiteOpenHelper {
         cursor.close();
         return arr.toString();
     }
-
+public void updateReelMetadata(long reelId, String username, String caption) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        if (username != null && !username.isEmpty()) cv.put(COL_USERNAME, username);
+        if (caption != null && !caption.isEmpty()) cv.put(COL_CAPTION, caption);
+        if (cv.size() > 0) {
+            db.update(TABLE_REELS, cv, COL_ID + " = ?", new String[]{String.valueOf(reelId)});
+        }
+    }
     public void markReelsSynced(List<Long> ids) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
