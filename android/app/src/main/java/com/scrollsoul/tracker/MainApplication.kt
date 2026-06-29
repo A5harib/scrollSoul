@@ -1,4 +1,4 @@
-package com.scrollmind.tracker
+package com.scrollsoul.tracker
 
 import android.app.Application
 import com.facebook.react.PackageList

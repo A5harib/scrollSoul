@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScrollSoul Explainer & Architecture Map</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #F5F0E6;
+            --surface-color: #FDFCF9;
+            --text-primary: #333333;
+            --text-secondary: #55556E;
+            --accent-color: #A67C6D;
+            --accent-light: #A67C6D15;
+            --accent-border: #A67C6D44;
+            --danger-color: #FF6B6B;
+            --border-color: #333333;
+            --font-sans: 'Outfit', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: var(--surface-color);
+            border: 2px solid var(--border-color);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 10px 0px rgba(0, 0, 0, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Paper texture background overlay */
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: radial-gradient(var(--text-secondary) 0.5px, transparent 0.5px);
+            background-size: 16px 16px;
+            opacity: 0.03;
+            pointer-events: none;
+        }
+
+        header {
+            border-bottom: 2px solid var(--accent-border);
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo span {
+            color: var(--accent-color);
+        }
+
+        .tagline {
+            font-size: 0.9rem;
+            letter-spacing: 3px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 0.5rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-left: 4px solid var(--accent-color);
+            padding-left: 10px;
+        }
+
+        p {
+            margin-bottom: 1.2rem;
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background-color: var(--surface-color);
+            border: 1.5px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            position: relative;
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 800;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge {
+            font-size: 0.7rem;
+            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 1px solid currentColor;
+            display: inline-block;
+        }
+
+        .badge-java {
+            color: var(--danger-color);
+            background-color: rgba(255, 107, 107, 0.08);
+        }
+
+        .badge-js {
+            color: #4CAF50;
+            background-color: rgba(76, 175, 80, 0.08);
+        }
+
+        .badge-groq {
+            color: var(--accent-color);
+            background-color: var(--accent-light);
+        }
+
+        ul {
+            margin-bottom: 1.2rem;
+            padding-left: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .diagram-container {
+            border: 1.5px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            background-color: var(--bg-color);
+            margin: 2rem 0;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            overflow-x: auto;
+            white-space: pre;
+            line-height: 1.4;
+            color: var(--text-primary);
+        }
+
+        .code-block {
+            background-color: var(--border-color);
+            color: #fff;
+            padding: 1rem;
+            border-radius: 12px;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            margin: 1rem 0;
+            overflow-x: auto;
+        }
+
+        .highlight {
+            color: var(--accent-color);
+            font-weight: 600;
+        }
+
+        .note-box {
+            background-color: var(--accent-light);
+            border: 1px dashed var(--accent-color);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .model-flow {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 1rem 0;
+            background: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--accent-border);
+            width: fit-content;
+        }
+
+        .model-tag {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            padding: 4px 8px;
+            background-color: #eee;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">SCROLL<span>SOUL</span></div>
+            <div class="tagline">Neural Architecture & Flow Explainer</div>
+        </header>
+
+        <p>This document tracks and explains the architectural shift of the ScrollSoul application. We are moving core logic out of Java to JavaScript to make the application simpler, more performant, and flexible. We are also introducing remote Groq OCR with LLM fallbacks and a settled scroll timing mechanism.</p>
+
+        <h2>1. The Shift: Java to JavaScript</h2>
+        <p>We are significantly thinning down the native Android layer by removing SQLite database operations, MLKit libraries, and OCR processing code from Java. Instead, the native layer becomes a lightweight proxy for events and OS-level operations (Accessibility and screenshotting).</p>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">
+                    <span class="badge badge-java">Before (Java Heavy)</span>
+                </div>
+                <ul>
+                    <li><strong>SQLite Database:</strong> Tracked reels, durations, today counts, and hourly calculations executed in native Java.</li>
+                    <li><strong>OCR engine:</strong> Local MLKit dependency built into Android APK to parse screen text.</li>
+                    <li><strong>String Cleanup:</strong> Heuristics for stripping UI strings written in verbose Java utility functions.</li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-title">
+                    <span class="badge badge-js">After (JS Centric)</span>
+                </div>
+                <ul>
+                    <li><strong>Lightweight Storage:</strong> Store reel history in a JSON database (`reels.json`) on the device. Read/write via tiny Native Modules methods.</li>
+                    <li><strong>Groq OCR:</strong> Call Groq API over HTTP from JavaScript. No heavy local packages.</li>
+                    <li><strong>Flexible Analytics:</strong> Stats, hourly activity, and keyword counts computed directly in JS arrays.</li>
+                </ul>
+            </div>
+        </div>
+
+        <h2>2. Scroll Settling & OCR Optimization</h2>
+        <p>To prevent executing heavy OCR calls when users are scanning through reels at rapid speeds, we introduce a <strong>Settled Scroll Timer</strong> on the JavaScript thread.</p>
+
+        <div class="diagram-container">
+[Scroll Event received from Native Service]
+                 │
+                 ▼
+     [Reset Debounce Timer (1.5s)]
+                 │
+                 ├─► User scrolls again before 1.5s? ────► [Cancel old timer & Reset]
+                 │
+                 ▼
+      [Timer Fires: Settled!]
+                 │
+                 ▼
+  [Scrape current UI username/caption]
+                 │
+                 ▼
+  [Is this same as last processed reel?] ──► Yes ──► [Skip OCR (Optimized!)]
+                 │
+                 ▼ No
+     [ReelsTrackerModule.takeScreenshot()]
+                 │
+                 ▼
+       [Invoke Groq OCR Pipeline]
+        </div>
+
+        <h2>3. OCR LLM Pipeline</h2>
+        <p>We send the screenshot as a base64 string to Groq's completions API. If the primary model fails or encounters rate limits, we fallback to the secondary model.</p>
+
+        <div class="model-flow">
+            <span class="highlight">Primary:</span>
+            <span class="model-tag">meta-llama/llama-4-scout-17b-16e-instruct</span>
+            <span>──► Fallback:</span>
+            <span class="model-tag">qwen/qwen3.6-27b</span>
+        </div>
+
+        <h2>4. Configuration & Deployment</h2>
+        <div class="note-box">
+            <strong>Groq API Key Instructions:</strong>
+            <p style="margin-top: 0.5rem; margin-bottom: 0.5rem;">To active the Groq vision OCR pipeline, set the environment variable <code>GROQ_API_KEY</code> on your system, or assign it directly inside <a href="file:///c:/Users/HP/Desktop/html/apps/scrollMind/src/hooks/useReelsTracker.ts">useReelsTracker.ts</a> on line 13:</p>
+            <pre style="background: #fff; padding: 8px; border-radius: 4px; border: 1px solid var(--accent-border); font-family: var(--font-mono); font-size: 0.8rem;">const GROQ_API_KEY = process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE";</pre>
+            <p style="margin-top: 0.5rem; margin-bottom: 0.5rem;">Run the build locally to deploy the optimized app:</p>
+            <pre style="background: #fff; padding: 8px; border-radius: 4px; border: 1px solid var(--accent-border); font-family: var(--font-mono); font-size: 0.8rem;">npm run android</pre>
+        </div>
+    </div>
+</body>
+</html>
