@@ -8,4 +8,4 @@
     android:description="@string/accessibility_service_description"
     android:packageNames="com.instagram.android"
     android:notificationTimeout="100"
-    android:settingsActivity="com.scrollmind.tracker.MainActivity" />
+    android:settingsActivity="com.scrollsoul.tracker.MainActivity" />

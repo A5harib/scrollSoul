@@ -1,4 +1,4 @@
-package com.scrollmind.tracker;
+package com.scrollsoul.tracker;
 
 import androidx.annotation.NonNull;
 

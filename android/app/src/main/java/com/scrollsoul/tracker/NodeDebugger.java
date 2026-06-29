@@ -1,4 +1,4 @@
-package com.scrollmind.tracker;
+package com.scrollsoul.tracker;
 
 import android.util.Log;
 import android.view.accessibility.AccessibilityNodeInfo;
