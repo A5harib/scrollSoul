@@ -5,7 +5,7 @@ import {
   insertReel, 
   updateReel, 
   clearAllReels, 
-  calculateStats 
+  calculateStatsFromSql 
 } from '../utils/reelsStore';
 
 const { ReelsTrackerModule } = NativeModules;
@@ -107,7 +107,7 @@ export function useReelsTracker() {
     try {
       const reels = await loadReels();
       setRecentReels(reels);
-      const computed = calculateStats(reels);
+      const computed = await calculateStatsFromSql();
       setStats(computed);
       
       // Sync overlay count with today's count calculated in JS
@@ -325,7 +325,8 @@ export function useReelsTracker() {
           // Smooth real-time update in UI
           const reels = await loadReels();
           setRecentReels(reels);
-          setStats(calculateStats(reels));
+          const computed = await calculateStatsFromSql();
+          setStats(computed);
         }
       }),
 

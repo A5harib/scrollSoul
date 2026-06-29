@@ -241,33 +241,33 @@
     <div class="container">
         <header>
             <div class="logo">SCROLL<span>SOUL</span></div>
-            <div class="tagline">Neural Architecture & Flow Explainer</div>
+            <div class="tagline">Neural Architecture & Flow Explainer (SQLite Backed)</div>
         </header>
 
-        <p>This document tracks and explains the architectural shift of the ScrollSoul application. We are moving core logic out of Java to JavaScript to make the application simpler, more performant, and flexible. We are also introducing remote Groq OCR with LLM fallbacks and a settled scroll timing mechanism.</p>
+        <p>This document tracks and explains the architectural design of the ScrollSoul application. The app leverages a robust native SQLite database for data persistence and analytical query performance, while shifting OCR API calls, primary/fallback model routing, and settled scroll timing completely to JavaScript.</p>
 
-        <h2>1. The Shift: Java to JavaScript</h2>
-        <p>We are significantly thinning down the native Android layer by removing SQLite database operations, MLKit libraries, and OCR processing code from Java. Instead, the native layer becomes a lightweight proxy for events and OS-level operations (Accessibility and screenshotting).</p>
+        <h2>1. The Architecture: Hybrid native SQLite & JS Business Flow</h2>
+        <p>The native Android layer acts as the Accessibility Event emitter and high-performance persistence engine (SQLite). JavaScript manages the high-level business flows and OCR pipeline orchestration.</p>
 
         <div class="grid">
             <div class="card">
                 <div class="card-title">
-                    <span class="badge badge-java">Before (Java Heavy)</span>
+                    <span class="badge badge-java">Native SQLite Engine</span>
                 </div>
                 <ul>
-                    <li><strong>SQLite Database:</strong> Tracked reels, durations, today counts, and hourly calculations executed in native Java.</li>
-                    <li><strong>OCR engine:</strong> Local MLKit dependency built into Android APK to parse screen text.</li>
-                    <li><strong>String Cleanup:</strong> Heuristics for stripping UI strings written in verbose Java utility functions.</li>
+                    <li><strong>TrackerDatabaseHelper:</strong> Stores tracked reels, watch times, engagement details, and thumbnails.</li>
+                    <li><strong>SQL Query Calculations:</strong> Highly optimized queries for today's count, hourly charts, top keyword distributions, and top creators.</li>
+                    <li><strong>Accessibility screenshotting:</strong> Native API Level 30 screenshot capture returning compressed JPEG base64 to JS.</li>
                 </ul>
             </div>
             <div class="card">
                 <div class="card-title">
-                    <span class="badge badge-js">After (JS Centric)</span>
+                    <span class="badge badge-js">JS Orchestrator</span>
                 </div>
                 <ul>
-                    <li><strong>Lightweight Storage:</strong> Store reel history in a JSON database (`reels.json`) on the device. Read/write via tiny Native Modules methods.</li>
-                    <li><strong>Groq OCR:</strong> Call Groq API over HTTP from JavaScript. No heavy local packages.</li>
-                    <li><strong>Flexible Analytics:</strong> Stats, hourly activity, and keyword counts computed directly in JS arrays.</li>
+                    <li><strong>reelsStore.ts:</strong> Acts as a TypeScript proxy that delegates all load, save, and aggregate queries directly to native SQLite methods.</li>
+                    <li><strong>Groq OCR:</strong> Coordinates HTTP Vision request to Groq vision model with fallback.</li>
+                    <li><strong>Settled scroll:</strong> Debounces scroll events to guarantee OCR is only called when viewing a reel for >1.5 seconds.</li>
                 </ul>
             </div>
         </div>
@@ -312,7 +312,7 @@
         <h2>4. Configuration & Deployment</h2>
         <div class="note-box">
             <strong>Groq API Key Instructions:</strong>
-            <p style="margin-top: 0.5rem; margin-bottom: 0.5rem;">To active the Groq vision OCR pipeline, set the environment variable <code>GROQ_API_KEY</code> on your system, or assign it directly inside <a href="file:///c:/Users/HP/Desktop/html/apps/scrollMind/src/hooks/useReelsTracker.ts">useReelsTracker.ts</a> on line 13:</p>
+            <p style="margin-top: 0.5rem; margin-bottom: 0.5rem;">To active the Groq vision OCR pipeline, set the environment variable <code>GROQ_API_KEY</code> on your system, or assign it directly inside <a href="file:///c:/Users/HP/Desktop/html/apps/scrollMind/src/hooks/useReelsTracker.ts">useReelsTracker.ts</a> on line 19:</p>
             <pre style="background: #fff; padding: 8px; border-radius: 4px; border: 1px solid var(--accent-border); font-family: var(--font-mono); font-size: 0.8rem;">const GROQ_API_KEY = process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE";</pre>
             <p style="margin-top: 0.5rem; margin-bottom: 0.5rem;">Run the build locally to deploy the optimized app:</p>
             <pre style="background: #fff; padding: 8px; border-radius: 4px; border: 1px solid var(--accent-border); font-family: var(--font-mono); font-size: 0.8rem;">npm run android</pre>

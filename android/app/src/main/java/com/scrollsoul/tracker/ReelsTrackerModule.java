@@ -26,18 +26,26 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 
 /**
- * React Native Native Module that bridges the AccessibilityService to JavaScript.
+ * React Native Native Module that bridges the AccessibilityService and SQLite Database to JavaScript.
  *
  * Exposed methods:
  *  - isServiceEnabled()         → Check if the accessibility service is currently enabled
  *  - openAccessibilitySettings()→ Navigate user to accessibility settings
  *  - getServiceStatus()         → Get current tracking state
- *  - writeTextFile()            → Write local JSON data to file storage
- *  - readTextFile()             → Read local JSON data from file storage
  *  - takeScreenshot()           → Take visual screenshot of target display and return base64
  *  - updateOverlay()            → Set overlay visual counter text
  *  - setToggle()                → Set shared preference toggle state
  *  - getToggle()                → Get shared preference toggle state
+ *
+ *  - insertReel()               → SQLite: Insert a new reel
+ *  - updateReelOcrText()        → SQLite: Save OCR result for a reel
+ *  - updateReelMetadata()       → SQLite: Save scraped metadata for a reel
+ *  - updateReelWatchData()      → SQLite: Update watchTimeMs and completionPercent
+ *  - updateReelEngagement()     → SQLite: Update liked, commented, shared flags
+ *  - getRecentReels()           → SQLite: Query recent reels as JSON
+ *  - getStats()                 → SQLite: Query aggregate analytics as JSON
+ *  - clearHistory()             → SQLite: Clear all records
+ *  - getTotalReelCount()        → SQLite: Count all reels
  */
 public class ReelsTrackerModule extends ReactContextBaseJavaModule {
 
@@ -88,7 +96,7 @@ public class ReelsTrackerModule extends ReactContextBaseJavaModule {
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    //  REACT METHODS — Exposed to JavaScript
+    //  REACT METHODS — Accessibility Service Control
     // ══════════════════════════════════════════════════════════════════════════════
 
     @ReactMethod
@@ -126,40 +134,6 @@ public class ReelsTrackerModule extends ReactContextBaseJavaModule {
             }
         } catch (Exception e) {
             promise.reject("ERROR", "Failed to get service status", e);
-        }
-    }
-
-    @ReactMethod
-    public void writeTextFile(String filename, String content, Promise promise) {
-        try {
-            File file = new File(reactContext.getFilesDir(), filename);
-            FileWriter writer = new FileWriter(file);
-            writer.write(content);
-            writer.close();
-            promise.resolve(true);
-        } catch (Exception e) {
-            promise.reject("ERROR", "Failed to write file: " + e.getMessage(), e);
-        }
-    }
-
-    @ReactMethod
-    public void readTextFile(String filename, Promise promise) {
-        try {
-            File file = new File(reactContext.getFilesDir(), filename);
-            if (!file.exists()) {
-                promise.resolve("");
-                return;
-            }
-            BufferedReader reader = new BufferedReader(new FileReader(file));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append("\n");
-            }
-            reader.close();
-            promise.resolve(sb.toString().trim());
-        } catch (Exception e) {
-            promise.reject("ERROR", "Failed to read file: " + e.getMessage(), e);
         }
     }
 
@@ -270,6 +244,108 @@ public class ReelsTrackerModule extends ReactContextBaseJavaModule {
             }
         } catch (Exception e) {
             promise.reject("ERROR", "Failed to get toggle", e);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    //  REACT METHODS — SQLite Database Bridging
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    @ReactMethod
+    public void insertReel(String username, String caption, Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            long id = db.insertReel(username, caption);
+            promise.resolve((double) id);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to insert reel: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void updateReelOcrText(double reelId, String ocrText, Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            db.updateReelOcrText((long) reelId, ocrText);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to update OCR text: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void updateReelMetadata(double reelId, String username, String caption, Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            db.updateReelMetadata((long) reelId, username, caption);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to update metadata: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void updateReelWatchData(double reelId, double watchTimeMs, double completionPercent, Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            db.updateReelWatchData((long) reelId, (long) watchTimeMs, completionPercent);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to update watch data: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void updateReelEngagement(double reelId, boolean liked, boolean commented, boolean shared, Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            db.updateReelEngagement((long) reelId, liked, commented, shared);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to update engagement: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void getRecentReels(double limit, Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            String json = db.getRecentReelsJSON((int) limit);
+            promise.resolve(json);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to get recent reels: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void getStats(Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            String json = db.getAggregateStatsJSON();
+            promise.resolve(json);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to get stats: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void clearHistory(Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            db.clearAllReels();
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to clear history: " + e.getMessage(), e);
+        }
+    }
+
+    @ReactMethod
+    public void getTotalReelCount(Promise promise) {
+        try {
+            TrackerDatabaseHelper db = TrackerDatabaseHelper.getInstance(reactContext);
+            promise.resolve(db.getTotalReelCount());
+        } catch (Exception e) {
+            promise.reject("ERROR", "Failed to get total reel count: " + e.getMessage(), e);
         }
     }
 
